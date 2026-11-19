@@ -2,7 +2,7 @@
 
 KittyPlays brings real-time frame interpolation directly to the YouTube player in Chrome. Choose a mode and frame-rate target from the player controls while you watch. All frame processing runs locally.
 
-Download or clone the repository, then open [install.html](install.html) in Chrome. The wizard checks your operating system and graphics adapter and guides you through installation.
+Open the [KittyPlays installation wizard](https://tapahob.github.io/KittyPlays/) in Chrome. It checks your operating system and graphics adapter and guides you through installation. To run it locally, open [install.html](install.html) from the downloaded repository.
 
 ## Architecture
 
