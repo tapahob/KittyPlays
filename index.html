@@ -145,9 +145,10 @@
           <p>Select <strong>Max</strong> to follow the refresh rate Chrome can use on your current display.</p>
         </aside>
         <aside id="fidelityfx-note" hidden>
-          <h3>AMD FidelityFX on Linux</h3>
-          <p>KittyPlays selects FidelityFX by default when Chrome detects a Radeon adapter. FidelityFX uses hardware WebGPU inside Chrome and switches to Optical Flow when WebGPU is unavailable.</p>
-          <details>
+          <h3>FidelityFX</h3>
+          <p>In the KittyPlays menu on YouTube, select <strong id="fidelityfx-mode">AMD FidelityFX</strong>. This mode runs in Chrome using hardware WebGPU and switches to Optical Flow if WebGPU is unavailable.</p>
+          <p id="fidelityfx-default" hidden>On Linux with Radeon graphics, KittyPlays selects FidelityFX by default unless you have saved another mode.</p>
+          <details id="fidelityfx-legacy" hidden>
             <summary>Legacy Vulkan helper for older builds</summary>
             <p>The current extension uses WebGPU. Use these downloads with an older extension build that supports the native helper.</p>
             <ol>
@@ -208,14 +209,19 @@
     return "Unknown";
   }
 
-  async function detectGraphics() {
-    const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+  async function detectGraphics(platform) {
+    const adapterOptions = platform === "Windows" ? {powerPreference: "high-performance"} : undefined;
+    const adapter = await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
     let gl;
+    let vendor;
     let renderer;
     try {
       gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
       const debug = gl?.getExtension("WEBGL_debug_renderer_info");
-      if (debug) renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+      if (debug) {
+        vendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
+        renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+      }
     } catch {
       // Hardware details may be unavailable when browser privacy settings mask them.
     } finally {
@@ -226,10 +232,12 @@
     const display = renderer?.replace(/^ANGLE \(([^,]+), (.*), [^,]+\)$/, "$2")
       .replace(/\s+Direct3D\d.*$/i, "");
     const software = /SwiftShader|llvmpipe|software rasterizer/i.test(renderer || "");
+    const names = info && !info.isFallbackAdapter ? [info.vendor, info.description] : [];
+    if (!software) names.push(vendor, renderer);
     return {
       label: display && !software ? display : adapterLabel || display || "Not reported by Chrome",
-      amd: /^(?:amd|0x1002)$/i.test(info?.vendor || "") ||
-        /\bradeon\b/i.test([info?.description, renderer].join(" ")),
+      amd: names.some(name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "")),
+      nvidia: names.some(name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "")),
       webgpu: Boolean(adapter && !info?.isFallbackAdapter),
       webgl: Boolean(gl && !software),
     };
@@ -255,17 +263,23 @@
       ChromeOS: "Open the ZIP in Files and copy its contents into a KittyPlays-Chrome folder in Downloads.",
     })[platform] || "Extract the ZIP with your system’s archive tool.";
     try {
-      const gpu = await detectGraphics();
+      const gpu = await detectGraphics(platform);
       byId("gpu").textContent = gpu.label;
       const chrome = /Chrome\//.test(navigator.userAgent) &&
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
-      byId("fidelityfx-note").hidden = !(platform === "Linux" && gpu.amd);
+      const fidelityFx = !mobile && platform !== "macOS" && (gpu.amd || gpu.nvidia);
+      const linuxRadeon = platform === "Linux" && gpu.amd;
+      byId("fidelityfx-note").hidden = !fidelityFx;
+      byId("fidelityfx-mode").textContent = gpu.nvidia ? "FidelityFX (WebGPU)" : "AMD FidelityFX";
+      byId("fidelityfx-default").hidden = !linuxRadeon;
+      byId("fidelityfx-legacy").hidden = !linuxRadeon;
       byId("vulkan-note").hidden = platform !== "Linux" || !chrome || gpu.webgpu;
+      const webgpuModes = fidelityFx ? "AI, Hybrid, and FidelityFX" : "AI and Hybrid";
       byId("compatibility").textContent = mobile
         ? "Open this wizard in desktop Chrome to install KittyPlays."
         : !chrome ? "Continue in desktop Google Chrome for the installation steps."
-        : gpu.webgpu ? "WebGPU is available for AI and Hybrid modes."
-        : gpu.webgl ? "WebGL 2 is available for Optical Flow. AI and Hybrid need WebGPU."
+        : gpu.webgpu ? `WebGPU is available for ${webgpuModes}.`
+        : gpu.webgl ? `WebGL 2 is available for Optical Flow. ${webgpuModes} need WebGPU.`
         : "GPU acceleration could not be confirmed. Installation can continue. Check Chrome’s graphics acceleration if interpolation modes are unavailable.";
     } catch {
       byId("gpu").textContent = "Not reported by Chrome";
