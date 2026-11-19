@@ -130,11 +130,26 @@
         <h2 tabindex="-1">Try it on YouTube</h2>
         <p>Open a video or reload an existing YouTube tab. The KittyPlays controls appear in the player next to the playback buttons. Choose a mode and a frame-rate target. <strong>Info</strong> shows the source and output FPS.</p>
         <div class="actions"><a class="button" href="https://www.youtube.com/" target="_blank" rel="noopener">Open YouTube</a></div>
-        <aside id="vfg-note" hidden>
-          <h3>Optional NVIDIA VFG setup</h3>
-          <p>VFG uses a separate Windows x64 helper and requires a supported NVIDIA GPU. <a href="https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoFrameGeneration.html" target="_blank" rel="noopener">Check NVIDIA’s GPU requirements</a>.</p>
-          <p>If you have <code>Install-KittyPlays-NVIDIA.cmd</code>, run it after loading KittyPlays. To build the installer, download the <a href="https://github.com/tapahob/KittyPlays">source repository</a> and use Rust and the MSVC build tools. Run this command from the repository root, then run the generated file in <code>target</code>.</p>
-          <pre><code>powershell -NoProfile -File scripts/build-vfg-installer.ps1</code></pre>
+        <aside id="mac-note" hidden>
+          <h3>Playback on macOS</h3>
+          <p>KittyPlays starts in Optical Flow when Chrome identifies the base Apple M1 GPU. You can also choose AI or Hybrid if WebGPU is available. All three modes run directly in Chrome.</p>
+          <p>Select <strong>Max</strong> to follow the refresh rate Chrome can use on your current display.</p>
+        </aside>
+        <aside id="fidelityfx-note" hidden>
+          <h3>AMD FidelityFX on Linux</h3>
+          <p>KittyPlays selects FidelityFX by default when Chrome detects a Radeon adapter. FidelityFX uses hardware WebGPU inside Chrome and switches to Optical Flow when WebGPU is unavailable.</p>
+          <details>
+            <summary>Legacy Vulkan helper for older builds</summary>
+            <p>The current extension uses WebGPU. Use these downloads with an older extension build that supports the native helper.</p>
+            <ol>
+              <li><a href="scripts/build-fidelityfx-linux.sh" download>Download the Linux build script</a>. Run it with Bash from the KittyPlays source folder.</li>
+              <li><a href="scripts/setup-fidelityfx.py" download>Download the registration script</a>. Run it with Python 3 and supply the older extension ID and the path to the built helper.</li>
+            </ol>
+          </details>
+        </aside>
+        <aside id="windows-note" hidden>
+          <h3>Playback on Windows</h3>
+          <p>AI, Hybrid, and Optical Flow process and display frames inside Chrome using graphics acceleration. No native helper is needed.</p>
         </aside>
       </section>
       <footer>
@@ -204,8 +219,8 @@
     const software = /SwiftShader|llvmpipe|software rasterizer/i.test(renderer || "");
     return {
       label: display && !software ? display : adapterLabel || display || "Not reported by Chrome",
-      nvidia: /\bnvidia\b|^0x10de$/i.test(info?.vendor || "") ||
-        /\bnvidia\b/i.test([info?.description, renderer].join(" ")),
+      amd: /^(?:amd|0x1002)$/i.test(info?.vendor || "") ||
+        /\bradeon\b/i.test([info?.description, renderer].join(" ")),
       webgpu: Boolean(adapter && !info?.isFallbackAdapter),
       webgl: Boolean(gl && !software),
     };
@@ -217,9 +232,11 @@
     const platform = detectPlatform();
     mobile = platform === "Android" || platform === "iOS / iPadOS";
     byId("platform").textContent = platform;
+    byId("mac-note").hidden = platform !== "macOS";
     byId("gpu").textContent = "Detecting…";
     byId("compatibility").textContent = "Checking browser capabilities…";
-    byId("vfg-note").hidden = true;
+    byId("windows-note").hidden = platform !== "Windows";
+    byId("fidelityfx-note").hidden = true;
     next.disabled = currentStep === 0 && mobile;
     byId("extract-tip").textContent = ({
       Windows: "In File Explorer, right-click the ZIP and select Extract All. The suggested folder name is ready to use.",
@@ -228,15 +245,11 @@
       ChromeOS: "Open the ZIP in Files and copy its contents into a KittyPlays-Chrome folder in Downloads.",
     })[platform] || "Extract the ZIP with your system’s archive tool.";
     try {
-      const [gpu, arch] = await Promise.all([
-        detectGraphics(),
-        navigator.userAgentData?.getHighEntropyValues(["architecture", "bitness"]).catch(() => ({})),
-      ]);
+      const gpu = await detectGraphics();
       byId("gpu").textContent = gpu.label;
       const chrome = /Chrome\//.test(navigator.userAgent) &&
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
-      const knownNonX64 = arch?.architecture && (arch.architecture !== "x86" || arch.bitness === "32");
-      byId("vfg-note").hidden = !(platform === "Windows" && gpu.nvidia && !knownNonX64);
+      byId("fidelityfx-note").hidden = !(platform === "Linux" && gpu.amd);
       byId("compatibility").textContent = mobile
         ? "Open this wizard in desktop Chrome to install KittyPlays."
         : !chrome ? "Continue in desktop Google Chrome for the installation steps."
