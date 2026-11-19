@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KittyPlays для YouTube",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Локальная интерполяция с выбором частоты кадров и счётчиком FPS поверх видео.",
   "icons": { "128": "icons/kittyplays-128.png" },
   "action": { "default_title": "Toggle KittyPlays in this tab" },

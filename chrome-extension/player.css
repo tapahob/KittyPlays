@@ -89,6 +89,12 @@
   box-shadow: 0 4px 12px #230e20a0;
 }
 .kittyplays-limit:not([open]) .kittyplays-limit-options { display: none; }
+.kittyplays-limit-options button[hidden] { display: none; }
+.kittyplays-mode-menu .kittyplays-limit-options {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  min-width: max-content;
+}
 .kittyplays-cat { display: block; width: 24px; height: 24px; border-radius: 5px; }
 .kittyplays-limit-options .kittyplays-cat { width: 32px; height: 32px; border-radius: 7px; }
 .kittyplays-sparkles { position: absolute; inset: 0; pointer-events: none; }

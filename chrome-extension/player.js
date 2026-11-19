@@ -11,10 +11,46 @@
   controls.className = "kittyplays-modes";
   controls.setAttribute("role", "group");
   controls.setAttribute("aria-label", "Интерполяция KittyPlays");
+  const modeMenu = document.createElement("details");
+  modeMenu.className = "kittyplays-limit kittyplays-mode-menu";
+  const modeTrigger = document.createElement("summary");
+  modeTrigger.title = "Playback mode";
+  const modeOptions = document.createElement("div");
+  modeOptions.className = "kittyplays-limit-options";
+  modeOptions.setAttribute("role", "group");
+  modeOptions.setAttribute("aria-label", "Playback mode");
+  modeMenu.append(modeTrigger, modeOptions);
+
+  const isNvidiaMode = mode => mode === "vfg" || mode === "fruc";
+  async function detectNvidia() {
+    const isNvidia = name => /\bnvidia\b|^0x10de$/i.test(name || "");
+    const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+    const info = adapter?.info;
+    if (info && !info.isFallbackAdapter && (isNvidia(info.vendor) || isNvidia(info.description))) return true;
+
+    // Try WebGL when WebGPU is unavailable, uses integrated graphics, or
+    // doesn't expose a vendor identifier.
+    const gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
+    if (!gl) return false;
+    try {
+      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+      return Boolean(debugInfo && (isNvidia(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)) ||
+        isNvidia(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL))));
+    } finally {
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    }
+  }
+
   function select(mode) {
     selected = mode;
-    for (const button of controls.querySelectorAll(".kittyplays-mode"))
-      button.setAttribute("aria-pressed", String(button.value === mode));
+    let label = "Mode";
+    for (const button of modeOptions.children) {
+      const current = button.value === mode;
+      button.setAttribute("aria-pressed", String(current));
+      if (current) label = button.textContent;
+    }
+    modeTrigger.textContent = label;
+    modeTrigger.setAttribute("aria-label", "Playback mode, " + label);
   }
   for (const [value, label, title] of [
     ["ai", "AI", "Neural frame interpolation"],
@@ -28,19 +64,25 @@
     button.className = "kittyplays-mode";
     button.value = value;
     button.textContent = label;
-    button.title = value === "original" ? title : title + ". Click again to return to Original.";
+    button.title = title;
+    button.hidden = isNvidiaMode(value);
     button.setAttribute("aria-pressed", "false");
     button.addEventListener("click", event => {
       event.stopPropagation();
-      enabled = value !== "original" && selected !== value;
+      if (button.hidden) return;
+      modeMenu.open = false;
+      modeTrigger.focus();
+      if (selected === value) return;
+      enabled = value !== "original";
       if (value !== "original") preferred = value;
       save({enabled, preferred});
       active?.dispose();
       active = undefined;
       sync();
     });
-    controls.append(button);
+    modeOptions.append(button);
   }
+  select(preferred);
   const limitMenu = document.createElement("details");
   limitMenu.className = "kittyplays-limit";
   const trigger = document.createElement("summary");
@@ -94,16 +136,18 @@
     }
   }).catch(() => {});
   limitMenu.append(trigger, choices);
-  limitMenu.addEventListener("focusout", event => {
-    if (!limitMenu.contains(event.relatedTarget)) limitMenu.open = false;
-  });
-  limitMenu.addEventListener("keydown", event => {
-    if (event.key === "Escape" && limitMenu.open) {
-      event.preventDefault();
-      limitMenu.open = false;
-      trigger.focus();
-    }
-  });
+  for (const [menu, summary] of [[modeMenu, modeTrigger], [limitMenu, trigger]]) {
+    menu.addEventListener("focusout", event => {
+      if (!menu.contains(event.relatedTarget)) menu.open = false;
+    });
+    menu.addEventListener("keydown", event => {
+      if (event.key === "Escape" && menu.open) {
+        event.preventDefault();
+        menu.open = false;
+        summary.focus();
+      }
+    });
+  }
   const infoButton = document.createElement("button");
   infoButton.type = "button";
   infoButton.textContent = "Info";
@@ -121,7 +165,7 @@
   infoBar.className = "kittyplays-info-bar";
   infoBar.append(infoButton);
   toolbar.append(controls, infoBar);
-  controls.append(limitMenu);
+  controls.append(modeMenu, limitMenu);
   const sparkles = document.createElement("span");
   sparkles.className = "kittyplays-sparkles";
   sparkles.setAttribute("aria-hidden", "true");
@@ -333,9 +377,15 @@
       sync();
     }
   });
-  chrome.storage.local.get(["enabled", "preferred", "rate", "showInfo"]).then(saved => {
+  Promise.all([
+    chrome.storage.local.get(["enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
+    detectNvidia().catch(() => false),
+  ]).then(([saved, nvidia]) => {
     if (typeof saved.enabled === "boolean") enabled = saved.enabled;
-    if (["ai", "flow", "hybrid", "vfg"].includes(saved.preferred)) preferred = saved.preferred;
+    for (const button of modeOptions.children) {
+      if (isNvidiaMode(button.value)) button.hidden = !nvidia;
+      if (!button.hidden && button.value === saved.preferred && button.value !== "original") preferred = button.value;
+    }
     if (["60", "120", "Max"].includes(saved.rate)) showRate(saved.rate);
     if (typeof saved.showInfo === "boolean") showInfo = saved.showInfo;
     infoButton.setAttribute("aria-pressed", String(showInfo));
