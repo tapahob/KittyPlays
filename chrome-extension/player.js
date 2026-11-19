@@ -26,7 +26,7 @@
   const isWindows = /^win/i.test(platform);
   const isMac = /^mac/i.test(platform);
   async function detectGraphics() {
-    const isAmd = name => /\b(?:amd|radeon|ati)\b|^0x1002$/i.test(name || "");
+    const isAmd = name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "");
     const isNvidia = name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "");
     const adapterOptions = isWindows ? {powerPreference: "high-performance"} : undefined;
     const adapter = isMac ? null : await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
@@ -45,7 +45,7 @@
       }
     }
     return {
-      amd: !isWindows && !isMac && names.some(isAmd),
+      amd: !isMac && names.some(isAmd),
       nvidia: !isMac && names.some(isNvidia),
       appleM1: isMac && names.some(name => /\bApple M1\b(?!\s+(?:Pro|Max|Ultra)\b)/i.test(name)),
     };
@@ -449,7 +449,7 @@
     detectGraphics().catch(() => ({})),
   ]).then(([saved, {amd, nvidia, appleM1}]) => {
     if (typeof saved.enabled === "boolean") enabled = saved.enabled;
-    if (amd) preferred = "fidelityfx";
+    if (amd && !isWindows) preferred = "fidelityfx";
     if (appleM1) preferred = "flow";
     for (const button of modeOptions.children) {
       if (button.value === "fidelityfx") {

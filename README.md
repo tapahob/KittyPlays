@@ -10,7 +10,7 @@ To update an unpacked install, reload KittyPlays on `chrome://extensions`, then 
 
 KittyPlays uses AI and Hybrid with WebGPU or Optical Flow with accelerated WebGL 2. These modes process and display frames inside Chrome without sending raw pixels through system memory to a native helper. The GPU path depends on Chrome's hardware video decoding and graphics acceleration. If WebGPU is unavailable, KittyPlays tries accelerated WebGL 2.
 
-AI is the default on Windows. On NVIDIA, select **FidelityFX (WebGPU)** to interpolate at the source resolution, up to 1080p. The renderer estimates motion once per pair and draws intermediate frames directly into the output texture, up to eight output frames per source interval.
+AI is the default on Windows. On Radeon, select **AMD FidelityFX** in the KittyPlays menu on YouTube. On NVIDIA, select **FidelityFX (WebGPU)**. Both use hardware WebGPU and interpolate at the source resolution, up to 1080p. Radeon inserts one frame per source pair. On NVIDIA, the renderer estimates motion once per pair and draws up to eight output frames per source interval. Both respect the selected FPS limit.
 
 ## Set up on macOS
 
@@ -19,11 +19,11 @@ On an Apple Silicon Mac, load the `chrome-extension` folder from `chrome://exten
 ## Architecture
 
 - **YouTube integration** adds interpolation controls and an optional statistics overlay to the native YouTube player. WebGPU and WebGL run inside Chrome.
-- **FidelityFX on NVIDIA and Linux with Radeon graphics** runs a video-specific port of FidelityFX SDK 1.1.4 Optical Flow and Frame Interpolation in WebGPU. It shares the player with the browser modes.
+- **FidelityFX on Windows and Linux with Radeon or NVIDIA graphics** runs a video-specific port of FidelityFX SDK 1.1.4 Optical Flow and Frame Interpolation in WebGPU. It shares the player with the browser modes.
 
 ## Features
 
-- Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available on NVIDIA adapters and on Linux with Radeon graphics. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
+- Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. On Windows and Linux, FidelityFX is also available when Chrome detects a Radeon or NVIDIA adapter. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
 - **Info** shows source and output FPS, frames dropped by Chrome, and the 95th-percentile interval between canvas updates. GPU use, video memory, processing resolution, and skipped inputs due to a busy renderer appear where available. Chrome remembers the selected mode, FPS target, and overlay visibility.
 
 ## Tech stack
