@@ -103,6 +103,15 @@
         </dl>
         <p id="compatibility" role="status">Checking browser capabilities…</p>
         <button id="detect" type="button">Check again</button>
+        <aside id="vulkan-note" hidden>
+          <h3>Enable Vulkan in Chrome</h3>
+          <p>On Linux, enabling Vulkan can make hardware WebGPU available for AI, Hybrid, and AMD FidelityFX.</p>
+          <ol>
+            <li>Paste <code>chrome://flags/#enable-vulkan</code> into a new Chrome tab.</li>
+            <li>Set <strong>Vulkan</strong> to <strong>Enabled</strong>, then click <strong>Relaunch</strong>.</li>
+            <li>Return to this wizard and click <strong>Check again</strong> before continuing.</li>
+          </ol>
+        </aside>
         <p>On systems with more than one GPU, Chrome may only report the adapter it is using.</p>
       </section>
       <section hidden>
@@ -237,6 +246,7 @@
     byId("compatibility").textContent = "Checking browser capabilities…";
     byId("windows-note").hidden = platform !== "Windows";
     byId("fidelityfx-note").hidden = true;
+    byId("vulkan-note").hidden = true;
     next.disabled = currentStep === 0 && mobile;
     byId("extract-tip").textContent = ({
       Windows: "In File Explorer, right-click the ZIP and select Extract All. The suggested folder name is ready to use.",
@@ -250,6 +260,7 @@
       const chrome = /Chrome\//.test(navigator.userAgent) &&
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
       byId("fidelityfx-note").hidden = !(platform === "Linux" && gpu.amd);
+      byId("vulkan-note").hidden = platform !== "Linux" || !chrome || gpu.webgpu;
       byId("compatibility").textContent = mobile
         ? "Open this wizard in desktop Chrome to install KittyPlays."
         : !chrome ? "Continue in desktop Google Chrome for the installation steps."
