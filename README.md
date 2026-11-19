@@ -26,20 +26,6 @@ On an Apple Silicon Mac, load the `chrome-extension` folder from `chrome://exten
 - Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available on NVIDIA adapters and on Linux with Radeon graphics. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
 - **Info** shows source and output FPS, frames dropped by Chrome, and the 95th-percentile interval between canvas updates. GPU use, video memory, processing resolution, and skipped inputs due to a busy renderer appear where available. Chrome remembers the selected mode, FPS target, and overlay visibility.
 
-## Tested hardware and operating systems
-
-| Hardware | Operating system | Frame generation | Test result |
-| --- | --- | --- | --- |
-| MacBook Pro 13-inch (Apple M1) | macOS 26.0.1 | Optical Flow (WebGL 2), AI and Hybrid (WebGPU) | On a local 1080p clip at 30 FPS, Chrome 157 showed 60 canvas updates per second with Optical Flow and 20–21 with AI or Hybrid. The built-in display ran at 60 Hz. |
-| GeForce RTX 4090 | Windows 11 | AI and Hybrid (WebGPU), Optical Flow (WebGL 2) | All three modes were exercised during YouTube playback in Chrome. |
-| GeForce RTX 4090 | Windows 11 | FidelityFX (WebGPU) | On a 1080p60 YouTube clip in headless Chrome, the renderer reported 119–120 canvas updates per second with zero source frames dropped by Chrome during the 12-second check. |
-| Radeon RX 6900 XT | CachyOS (Linux) | Optical Flow (WebGL 2) | In Chromium, 60 FPS input reached 120 FPS at 1080p and 118–120 FPS at 4K. |
-| Radeon RX 6900 XT | CachyOS (Linux) | AI and Hybrid (WebGPU) | Both fell back to Optical Flow in the default Chromium profile. With Vulkan forced, AI ran at about 70 FPS. |
-| Radeon RX 6900 XT | CachyOS (Linux) | AMD FidelityFX (Vulkan) | A buffered prototype reached 119 FPS from 60 FPS input at 1080p and processed every input frame in a six-second run. The native benchmark measured a median of 1.27 ms of GPU generation time. |
-| Ryzen 9 3900X | CachyOS (Linux) | CPU interpolation (FFmpeg and MVTools) | In offline tests at 1080p, FFmpeg reached about 5 FPS and MVTools reached about 217 output FPS in batch processing. |
-
-The CachyOS tests used synthetic clips. In a separate RTX 4090 test on a synthetic 1080p24 clip in headless Chrome, FidelityFX (WebGPU) reported 120 canvas updates per second with zero busy input drops across three one-second samples.
-
 ## Tech stack
 
 - **Browser** — Chrome Manifest V3, JavaScript, CSS, WebGPU/WGSL, WebGL 2/GLSL, and Framegen tfact2.

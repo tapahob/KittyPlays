@@ -138,6 +138,14 @@
         <aside id="fidelityfx-note" hidden>
           <h3>AMD FidelityFX on Linux</h3>
           <p>KittyPlays selects FidelityFX by default when Chrome detects a Radeon adapter. FidelityFX uses hardware WebGPU inside Chrome and switches to Optical Flow when WebGPU is unavailable.</p>
+          <details>
+            <summary>Legacy Vulkan helper for older builds</summary>
+            <p>The current extension uses WebGPU. Use these downloads with an older extension build that supports the native helper.</p>
+            <ol>
+              <li><a href="scripts/build-fidelityfx-linux.sh" download>Download the Linux build script</a>. Run it with Bash from the KittyPlays source folder.</li>
+              <li><a href="scripts/setup-fidelityfx.py" download>Download the registration script</a>. Run it with Python 3 and supply the older extension ID and the path to the built helper.</li>
+            </ol>
+          </details>
         </aside>
         <aside id="windows-note" hidden>
           <h3>Playback on Windows</h3>
