@@ -42,15 +42,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
 });
 
 chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== "kittyplays-vfg" || port.sender?.origin !== "https://www.youtube.com" ||
+  const name = port.name === "kittyplays-fidelityfx" ? "com.kittyplays.fidelityfx" :
+    port.name === "kittyplays-vfg" ? "com.kittyplays.vfg" : null;
+  if (!name || port.sender?.origin !== "https://www.youtube.com" ||
       port.sender.id !== chrome.runtime.id || port.sender.frameId !== 0) return;
-  const host = chrome.runtime.connectNative("com.kittyplays.vfg");
+  const host = chrome.runtime.connectNative(name);
   let disconnected = false;
   host.onMessage.addListener(message => {
     if (!disconnected) port.postMessage(message);
   });
   host.onDisconnect.addListener(() => {
-    const error = chrome.runtime.lastError?.message || "NVIDIA VFG helper disconnected";
+    const error = chrome.runtime.lastError?.message || "KittyPlays helper disconnected";
     if (disconnected) return;
     port.postMessage({error});
     port.disconnect();

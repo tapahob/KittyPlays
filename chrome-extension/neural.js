@@ -2,7 +2,7 @@
 // generated for one input pair. Only a tiny scene signature returns to the CPU.
 async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
   const adapter = await navigator.gpu?.requestAdapter();
-  if (!adapter) throw new Error("WebGPU unavailable");
+  if (!adapter || adapter.info?.isFallbackAdapter) throw new Error("Hardware WebGPU unavailable");
   const device = await adapter.requestDevice({
     requiredFeatures: ["shader-f16", "timestamp-query"].filter(feature => adapter.features.has(feature)),
   });

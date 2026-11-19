@@ -1,6 +1,6 @@
 // GPU motion estimation runs at the source cadence. The display pass only samples
 // two colour textures and the previously computed motion field.
-function kittyRenderer(canvas) {
+function kittyRenderer(canvas, onCaptureError) {
   const gl = canvas.getContext("webgl2", {alpha: false, antialias: false, depth: false});
   if (!gl) throw new Error("WebGL 2 unavailable");
   const vertex = `#version 300 es
@@ -87,6 +87,37 @@ function kittyRenderer(canvas) {
   const fbo = gl.createFramebuffer();
   let width, height, cols, rows, probe, pending, serial = 0;
   let slots = [], frames = [];
+  let captureGeneration = 0, capturing = false, bitmapUploadMs = 0;
+  let useBitmap = typeof createImageBitmap === "function";
+  const timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+  const uploadTiming = {calls: 0}, flowTiming = {calls: 0}, drawTiming = {calls: 0};
+  const timings = [uploadTiming, flowTiming, drawTiming];
+  function startTimer(stage) {
+    stage.calls++;
+    if (!timer || stage.query) return false;
+    stage.query = gl.createQuery();
+    if (!stage.query) return false;
+    gl.beginQuery(timer.TIME_ELAPSED_EXT, stage.query);
+    return true;
+  }
+  function gpuLoad(elapsed) {
+    const disjoint = timer && gl.getParameter(timer.GPU_DISJOINT_EXT);
+    for (const stage of timings) {
+      if (disjoint) stage.ms = undefined;
+      if (!stage.query) continue;
+      if (!disjoint && !gl.getQueryParameter(stage.query, gl.QUERY_RESULT_AVAILABLE)) continue;
+      if (!disjoint) {
+        const ms = gl.getQueryParameter(stage.query, gl.QUERY_RESULT) / 1e6;
+        stage.ms = stage.ms === undefined ? ms : .75 * stage.ms + .25 * ms;
+      }
+      gl.deleteQuery(stage.query);
+      stage.query = undefined;
+    }
+    const known = timer && elapsed > 0 && timings.every(stage => !stage.calls || Number.isFinite(stage.ms));
+    const busy = timings.reduce((sum, stage) => sum + stage.calls * (stage.ms || 0), 0);
+    for (const stage of timings) stage.calls = 0;
+    return known ? Math.min(100, 100 * busy / elapsed) : null;
+  }
   function texture(w,h,levels) {
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D,t);
@@ -104,9 +135,16 @@ function kittyRenderer(canvas) {
     gl.viewport(0,0,w,h);
   }
   function reset() {
+    captureGeneration++;
+    bitmapUploadMs = 0;
     if (pending?.query) gl.deleteQuery(pending.query);
     pending = undefined;
     frames = [];
+    for (const stage of timings) {
+      if (stage.query) gl.deleteQuery(stage.query);
+      stage.query = stage.ms = undefined;
+      stage.calls = 0;
+    }
   }
   function release() {
     reset();
@@ -131,60 +169,90 @@ function kittyRenderer(canvas) {
     if (!changed) return;
     const previous = frames.at(-1);
     if (previous) {
+      const timed = startTimer(flowTiming);
       bind(0,previous.slot.image); bind(1,slot.image); bind(2,null);
       target(slot.motion,cols,rows);
       gl.useProgram(estimate);
       gl.uniform2f(gridSize,cols,rows);
       gl.drawArrays(gl.TRIANGLES,0,3);
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      if (timed) gl.endQuery(timer.TIME_ELAPSED_EXT);
     }
     frames.push({slot,time,id:++serial});
     if (frames.length > 4) frames.shift();
   }
+  function uploadFrame(source, frameWidth, frameHeight, time) {
+    if (width !== frameWidth || height !== frameHeight) {
+      release();
+      width = canvas.width = frameWidth;
+      height = canvas.height = frameHeight;
+      const block = Math.max(8,Math.round(12*width/1920));
+      cols = Math.ceil(width/block);
+      rows = Math.ceil(height/block);
+      probe = texture(1,1,1);
+    }
+    poll(true);
+    const timed = startTimer(uploadTiming);
+    let slot = slots.find(s => frames.every(f => f.slot !== s));
+    if (!slot) {
+      const levels = Math.min(6,1+Math.floor(Math.log2(Math.max(width,height))));
+      slot = {image:texture(width,height,levels),motion:texture(cols,rows,1)};
+      slots.push(slot);
+    }
+    bind(1,slot.image);
+    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,source);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    const previous = frames.at(-1);
+    let query;
+    if (previous) {
+      bind(0,previous.slot.image);
+      target(probe,1,1);
+      gl.useProgram(compare);
+      query = gl.createQuery();
+      gl.beginQuery(gl.ANY_SAMPLES_PASSED,query);
+      gl.drawArrays(gl.TRIANGLES,0,3);
+      gl.endQuery(gl.ANY_SAMPLES_PASSED);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    }
+    pending = {slot,time,query};
+    if (timed) gl.endQuery(timer.TIME_ELAPSED_EXT);
+  }
   let lastId, lastWeight;
   return {
     reset,
-    resources() {
+    resources(elapsed) {
       let pixels = 0;
       if (width && height) {
         const levels = Math.min(6, 1 + Math.floor(Math.log2(Math.max(width, height))));
         for (let i = 0; i < levels; i++) pixels += Math.max(1, width >> i) * Math.max(1, height >> i);
       }
-      return {gpu: null, bytes: 4 * ((probe ? 1 : 0) + slots.length * (pixels + (cols || 0) * (rows || 0)))};
+      const browserMs = bitmapUploadMs;
+      bitmapUploadMs = 0;
+      return {gpu: gpuLoad(elapsed), browserMs, bytes: 4 * ((probe ? 1 : 0) + slots.length * (pixels + (cols || 0) * (rows || 0)))};
     },
     upload(video,time) {
-      if (width !== video.videoWidth || height !== video.videoHeight) {
-        release();
-        width = canvas.width = video.videoWidth;
-        height = canvas.height = video.videoHeight;
-        const block = Math.max(8,Math.round(12*width/1920));
-        cols = Math.ceil(width/block);
-        rows = Math.ceil(height/block);
-        probe = texture(1,1,1);
+      if (!useBitmap) {
+        uploadFrame(video, video.videoWidth, video.videoHeight, time);
+        return;
       }
-      poll(true);
-      let slot = slots.find(s => frames.every(f => f.slot !== s));
-      if (!slot) {
-        const levels = Math.min(6,1+Math.floor(Math.log2(Math.max(width,height))));
-        slot = {image:texture(width,height,levels),motion:texture(cols,rows,1)};
-        slots.push(slot);
-      }
-      bind(1,slot.image);
-      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,video);
-      gl.generateMipmap(gl.TEXTURE_2D);
-      const previous = frames.at(-1);
-      let query;
-      if (previous) {
-        bind(0,previous.slot.image);
-        target(probe,1,1);
-        gl.useProgram(compare);
-        query = gl.createQuery();
-        gl.beginQuery(gl.ANY_SAMPLES_PASSED,query);
-        gl.drawArrays(gl.TRIANGLES,0,3);
-        gl.endQuery(gl.ANY_SAMPLES_PASSED);
-        gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-      }
-      pending = {slot,time,query};
+      if (capturing) return;
+      capturing = true;
+      const generation = captureGeneration;
+      // Chromium can reuse the video texture when the source is an ImageBitmap.
+      createImageBitmap(video).then(bitmap => {
+        try {
+          if (generation !== captureGeneration) return;
+          const began = performance.now();
+          uploadFrame(bitmap, bitmap.width, bitmap.height, time);
+          bitmapUploadMs += performance.now() - began;
+        } finally {
+          bitmap.close();
+        }
+      }, () => {
+        if (generation === captureGeneration) useBitmap = false;
+      }).catch(onCaptureError).finally(() => {
+        capturing = false;
+      });
     },
     drawAt(time) {
       poll();
@@ -195,11 +263,13 @@ function kittyRenderer(canvas) {
       const fraction = Math.min(1,Math.max(0,(time-a.time)/(b.time-a.time)));
       if (b.id===lastId && fraction===lastWeight) return false;
       lastId=b.id; lastWeight=fraction;
+      const timed = startTimer(drawTiming);
       gl.viewport(0,0,width,height);
       gl.useProgram(present);
       bind(0,a.slot.image); bind(1,b.slot.image); bind(2,b.slot.motion);
       gl.uniform1f(weight,fraction);
       gl.drawArrays(gl.TRIANGLES,0,3);
+      if (timed) gl.endQuery(timer.TIME_ELAPSED_EXT);
       return true;
     },
     dispose() {

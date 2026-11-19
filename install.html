@@ -130,6 +130,10 @@
         <h2 tabindex="-1">Try it on YouTube</h2>
         <p>Open a video or reload an existing YouTube tab. The KittyPlays controls appear in the player next to the playback buttons. Choose a mode and a frame-rate target. <strong>Info</strong> shows the source and output FPS.</p>
         <div class="actions"><a class="button" href="https://www.youtube.com/" target="_blank" rel="noopener">Open YouTube</a></div>
+        <aside id="fidelityfx-note" hidden>
+          <h3>AMD FidelityFX setup</h3>
+          <p>KittyPlays selects FidelityFX by default on AMD. Install and register the local helper to enable it. <a href="https://github.com/tapahob/KittyPlays#set-up-amd-fidelityfx" target="_blank" rel="noopener">Build and register the helper</a>.</p>
+        </aside>
         <aside id="vfg-note" hidden>
           <h3>Optional NVIDIA VFG setup</h3>
           <p>VFG uses a separate Windows x64 helper and requires a supported NVIDIA GPU. <a href="https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoFrameGeneration.html" target="_blank" rel="noopener">Check NVIDIA’s GPU requirements</a>.</p>
@@ -204,6 +208,8 @@
     const software = /SwiftShader|llvmpipe|software rasterizer/i.test(renderer || "");
     return {
       label: display && !software ? display : adapterLabel || display || "Not reported by Chrome",
+      amd: /^(?:amd|0x1002)$/i.test(info?.vendor || "") ||
+        /\bradeon\b/i.test([info?.description, renderer].join(" ")),
       nvidia: /\bnvidia\b|^0x10de$/i.test(info?.vendor || "") ||
         /\bnvidia\b/i.test([info?.description, renderer].join(" ")),
       webgpu: Boolean(adapter && !info?.isFallbackAdapter),
@@ -220,6 +226,7 @@
     byId("gpu").textContent = "Detecting…";
     byId("compatibility").textContent = "Checking browser capabilities…";
     byId("vfg-note").hidden = true;
+    byId("fidelityfx-note").hidden = true;
     next.disabled = currentStep === 0 && mobile;
     byId("extract-tip").textContent = ({
       Windows: "In File Explorer, right-click the ZIP and select Extract All. The suggested folder name is ready to use.",
@@ -237,6 +244,7 @@
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
       const knownNonX64 = arch?.architecture && (arch.architecture !== "x86" || arch.bitness === "32");
       byId("vfg-note").hidden = !(platform === "Windows" && gpu.nvidia && !knownNonX64);
+      byId("fidelityfx-note").hidden = !(["Linux", "Windows"].includes(platform) && gpu.amd && !knownNonX64);
       byId("compatibility").textContent = mobile
         ? "Open this wizard in desktop Chrome to install KittyPlays."
         : !chrome ? "Continue in desktop Google Chrome for the installation steps."

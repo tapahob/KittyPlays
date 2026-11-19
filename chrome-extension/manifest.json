@@ -9,7 +9,7 @@
   "permissions": ["storage", "nativeMessaging"],
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],
-    "js": ["motion.js", "renderer.js", "neural/rt.js", "neural.js", "vfg.js", "player.js"],
+    "js": ["motion.js", "renderer.js", "neural/rt.js", "neural.js", "vfg.js", "fidelityfx.js", "player.js"],
     "css": ["player.css"],
     "run_at": "document_idle"
   }]
