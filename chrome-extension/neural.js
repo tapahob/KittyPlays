@@ -1,5 +1,5 @@
 // Framegen's tfact2 student shares its expensive trunk across all the times
-// generated for one input pair. Only a tiny scene signature returns to the CPU.
+// generated for one input pair. Only the scene classification returns to the CPU.
 async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter || adapter.info?.isFallbackAdapter) throw new Error("Hardware WebGPU unavailable");
@@ -29,32 +29,53 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
     if (!context) throw new Error("WebGPU canvas unavailable");
     const U = GPUTextureUsage,
       B = GPUBufferUsage;
-    const signatureBytes = 16 * 12 * 4;
-    const signature = device.createBuffer({
-      size: signatureBytes,
+    const sceneBytes = Uint32Array.BYTES_PER_ELEMENT;
+    const scene = device.createBuffer({
+      size: sceneBytes,
       usage: B.STORAGE | B.COPY_SRC,
     });
     const readback = device.createBuffer({
-      size: signatureBytes,
+      size: sceneBytes,
       usage: B.COPY_DST | B.MAP_READ,
     });
-    const signaturePipe = device.createComputePipeline({
+    const scenePipe = device.createComputePipeline({
       layout: "auto",
       compute: {
         module: device.createShaderModule({
           code: `
-        @group(0) @binding(0) var image: texture_2d<f32>;
-        @group(0) @binding(1) var<storage,read_write> result:array<u32>;
-        @compute @workgroup_size(8,4) fn main(@builtin(global_invocation_id) id:vec3<u32>) {
+        @group(0) @binding(0) var current: texture_2d<f32>;
+        @group(0) @binding(1) var previous: texture_2d<f32>;
+        @group(0) @binding(2) var<storage,read_write> result: u32;
+        var<workgroup> sum: atomic<u32>;
+        var<workgroup> peak: atomic<u32>;
+        var<workgroup> changed: atomic<u32>;
+        fn sample(image: texture_2d<f32>, cell: vec2<u32>) -> vec3<i32> {
           let dim=textureDimensions(image);
-          let uv=(vec2<f32>(id.xy)+0.5)/vec2<f32>(16,12);
+          let uv=(vec2<f32>(cell)+0.5)/vec2<f32>(16,12);
           let p=vec2<i32>(uv*vec2<f32>(dim));
           var rgb=vec3<f32>(0);
           for(var y=0;y<2;y++){for(var x=0;x<2;x++){
             let offset=vec2<i32>(x*3-1,y*3-1);
             rgb+=textureLoad(image,clamp(p+offset,vec2<i32>(0),vec2<i32>(dim)-1),0).rgb;
           }}
-          result[id.y*16+id.x]=pack4x8unorm(vec4<f32>(rgb*.25,1));
+          return vec3<i32>(round(rgb * (255.0 / 4.0)));
+        }
+        @compute @workgroup_size(16,12) fn main(
+          @builtin(local_invocation_id) id: vec3<u32>,
+          @builtin(local_invocation_index) index: u32,
+        ) {
+          let delta=abs(sample(current,id.xy)-sample(previous,id.xy));
+          let distance=u32(delta.r+delta.g+delta.b);
+          atomicAdd(&sum,distance);
+          atomicMax(&peak,distance);
+          if (distance > 24u*3u) { atomicAdd(&changed,1u); }
+          workgroupBarrier();
+          if (index == 0u) {
+            let mean=f32(atomicLoad(&sum))/(3.0*192.0);
+            let repeat=mean < 0.8 && atomicLoad(&peak) < 12u*3u;
+            let cut=mean > 51.0 && atomicLoad(&changed) > 144u;
+            result=select(select(0u,2u,cut),1u,repeat);
+          }
         }`,
         }),
         entryPoint: "main",
@@ -88,7 +109,7 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
         ? Math.min(100, 100 * stages.reduce((n, s) => n + s.calls * (s.ms || 0), 0) / elapsed)
         : null;
       prepare.calls = generate.calls = 0;
-      return { gpu, bytes: net.allocatedBytes + 2 * signatureBytes
+      return { gpu, bytes: net.allocatedBytes + sceneBytes
         + width * height * 4 * (slots.length + (out ? 1 : 0)) };
     }
     const reset = () => {
@@ -139,16 +160,7 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
           usage:
             U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT,
         });
-        slot = {
-          image,
-          group: device.createBindGroup({
-            layout: signaturePipe.getBindGroupLayout(0),
-            entries: [
-              { binding: 0, resource: image.createView() },
-              { binding: 1, resource: { buffer: signature } },
-            ],
-          }),
-        };
+        slot = { image, view: image.createView() };
         slots.push(slot);
       }
       device.queue.copyExternalImageToTexture(
@@ -156,44 +168,34 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
         { texture: slot.image },
         [width, height],
       );
+      const prev = frames.at(-1);
+      const group = device.createBindGroup({
+        layout: scenePipe.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: slot.view },
+          { binding: 1, resource: prev?.slot.view || slot.view },
+          { binding: 2, resource: { buffer: scene } },
+        ],
+      });
       const enc = device.createCommandEncoder(),
         pass = enc.beginComputePass();
-      pass.setPipeline(signaturePipe);
-      pass.setBindGroup(0, slot.group);
-      pass.dispatchWorkgroups(2, 3);
+      pass.setPipeline(scenePipe);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(1);
       pass.end();
-      enc.copyBufferToBuffer(signature, 0, readback, 0, signatureBytes);
+      enc.copyBufferToBuffer(scene, 0, readback, 0, sceneBytes);
       device.queue.submit([enc.finish()]);
       const generation = epoch;
       reading = true;
       readback
         .mapAsync(GPUMapMode.READ)
         .then(() => {
-          const sample = new Uint8Array(readback.getMappedRange()).slice();
+          const classification = new Uint32Array(readback.getMappedRange())[0];
           readback.unmap();
           if (closed || generation !== epoch) return;
-          const prev = frames.at(-1);
-          let sum = 0,
-            peak = 0,
-            changed = 0;
-          if (prev)
-            for (let i = 0; i < signatureBytes; i += 4) {
-              const d =
-                (Math.abs(sample[i] - prev.sample[i]) +
-                  Math.abs(sample[i + 1] - prev.sample[i + 1]) +
-                  Math.abs(sample[i + 2] - prev.sample[i + 2])) /
-                3;
-              sum += d;
-              peak = Math.max(peak, d);
-              if (d > 24) changed++;
-            }
-          const mean = sum / (signatureBytes / 4);
-          if (prev && mean < 0.8 && peak < 12) return;
-          const cut =
-            prev &&
-            (time - prev.time > 0.25 ||
-              (mean > 51 && changed > (signatureBytes / 4) * 0.75));
-          frames.push({ slot, time, sample, cut });
+          if (prev && classification === 1) return;
+          const cut = prev && (time - prev.time > 0.25 || classification === 2);
+          frames.push({ slot, time, cut });
           if (frames.length > 4) frames.shift();
         })
         .catch(failure)
@@ -246,7 +248,7 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
         closed = true;
         reset();
         freeTextures();
-        signature.destroy();
+        scene.destroy();
         readback.destroy();
         net.destroy();
         context.unconfigure();

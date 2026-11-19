@@ -1,195 +1,270 @@
-function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit) {
-  return new Promise((resolve, reject) => {
-    const port = chrome.runtime.connect({name: "kittyplays-fidelityfx"});
-    const output = canvas.getContext("2d", {alpha: false});
-    const capture = document.createElement("canvas");
-    const pending = [], queue = [];
-    // Width, height, reset, color flags, pixel format and frame duration precede the pixels.
-    const packet = new Uint8Array(1920 * 1080 * 4 + 9);
-    const header = new DataView(packet.buffer);
-    const timeout = setTimeout(() => fail(new Error(
-      socket ? "Allow loopback access for YouTube in Chrome, then select AMD FidelityFX again"
-        : "FidelityFX helper did not start")), 25000);
-    let socket, reader, ready = false, closed = false, copying = false, bypass = false;
-    let displayed, lastTime, cadence, playbackRate = 1, generation = 0, totalLatency = 0, samples = 0;
+// Video-only FidelityFX path. Pixel data stays in browser GPU textures.
+async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit, maxMultiplier = 2) {
+  const adapter = await navigator.gpu?.requestAdapter({powerPreference: "high-performance"});
+  if (!adapter || adapter.info.isFallbackAdapter) throw new Error("FidelityFX requires hardware WebGPU");
+  signal.throwIfAborted();
+  const device = await adapter.requestDevice();
+  try {
+    const stages = Object.entries(kittyFidelityFxShaders).flatMap(([name, code]) => {
+      const module = device.createShaderModule({label: name, code});
+      if (name === "search") return [
+        ["coarse", module, {radius: 8, usePrediction: 0}],
+        ["refine", module, {radius: 4, usePrediction: 1}],
+        ["refineLocal", module, {radius: 4, usePrediction: 1, tryLocal: 1}],
+        ["fine", module, {radius: 2, usePrediction: 1}],
+      ];
+      return [[name, module]];
+    });
+    const pipes = Object.fromEntries(await Promise.all(stages.map(async ([name, module, constants]) => [
+      name,
+      await device.createComputePipelineAsync({label: name, layout: "auto", compute: {
+        module, entryPoint: "main", constants,
+      }}),
+    ])));
+    signal.throwIfAborted();
+    const context = canvas.getContext("webgpu");
+    if (!context) throw new Error("WebGPU canvas unavailable");
 
-    function reset() {
-      generation++;
-      lastTime = displayed = undefined;
-      for (const frame of [...queue, ...pending]) frame.image.close();
-      queue.length = 0;
-    }
-    function dispose() {
-      if (closed) return;
-      closed = true;
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", dispose);
-      port.disconnect();
-      socket?.close();
-      reset();
-      pending.length = 0;
-      if (!ready) reject(new DOMException("FidelityFX connection cancelled", "AbortError"));
-    }
+    const textureUsage = GPUTextureUsage;
+    const bufferUsage = GPUBufferUsage;
+    const read = textureUsage.TEXTURE_BINDING;
+    const storage = textureUsage.STORAGE_BINDING;
+    const copyIn = textureUsage.COPY_DST | textureUsage.RENDER_ATTACHMENT;
+    const sampler = device.createSampler({minFilter: "linear", magFilter: "linear"});
+    const frames = [], slots = [], levels = [], pyramids = [];
+    let width = 0, height = 0, bytes = 0;
+    let pyramidIndex = 0;
+    let projected, phase;
+    const phaseData = new ArrayBuffer(16);
+    const phaseGrid = new Uint32Array(phaseData, 0, 2);
+    const phaseTime = new Float32Array(phaseData, 8, 1);
+    let cadence, playbackRate = 1, displayed, bypass = false;
+    let inFlight = 0, presenting = false, closed = false;
+    let busyDrops = 0;
+
     function fail(error) {
       if (closed) return;
-      if (!ready) reject(error);
       dispose();
-      if (ready) onFailure(error);
+      onFailure(error);
     }
-    signal.addEventListener("abort", dispose, {once: true});
-    if (signal.aborted) { dispose(); return; }
-    if (!output || typeof VideoFrame !== "function") {
-      fail(new Error("FidelityFX requires Canvas 2D and WebCodecs"));
-      return;
+    device.lost.then(info => fail(new Error(info.message || "GPU device lost")));
+    device.addEventListener("uncapturederror", event => fail(event.error));
+
+    function texture(w, h, format, usage, label) {
+      const image = device.createTexture({label, size: [w, h], format, usage});
+      bytes += w * h * (format === "rg32sint" ? 8 : 4);
+      return {image, view: image.createView()};
     }
 
-    async function upload(video, time, sourceFps) {
-      playbackRate = video.playbackRate;
+    function buffer(size, usage) {
+      bytes += size;
+      return device.createBuffer({size, usage});
+    }
+
+    function reset() {
+      frames.length = 0;
+      cadence = displayed = undefined;
+      busyDrops = 0;
+    }
+
+    function release() {
+      reset();
+      for (const slot of slots) {
+        slot.color.image.destroy();
+        slot.vectors.destroy();
+        slot.entries.destroy();
+        slot.divergence.destroy();
+      }
+      for (const pyramid of pyramids) for (const luma of pyramid) luma.image.destroy();
+      for (const level of levels) {
+        level.raw.image.destroy();
+        level.filtered.image.destroy();
+      }
+      slots.length = levels.length = pyramids.length = 0;
+      phase?.destroy();
+      projected?.destroy();
+      bytes = 0;
+    }
+
+    function resize(w, h) {
+      release();
+      width = canvas.width = w;
+      height = canvas.height = h;
+      context.configure({device, format: "rgba8unorm", alphaMode: "opaque", usage: copyIn | storage});
+      while (levels.length < 7) {
+        const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
+        levels.push({w, h, cols, rows,
+          raw: texture(cols, rows, "rg32sint", read | storage, "Raw optical flow"),
+          filtered: texture(cols, rows, "rg32sint", read | storage, "Filtered optical flow"),
+        });
+        if (Math.max(w, h) <= 16) break;
+        w = Math.ceil(w / 2);
+        h = Math.ceil(h / 2);
+      }
+      const cells = levels[0].cols * levels[0].rows;
+      for (let i = 0; i < 2; i++) {
+        pyramids.push(levels.map(({w, h}) => texture(w, h, "r32uint", read | storage, "Luminance pyramid")));
+      }
+      phaseGrid.set([levels[0].cols, levels[0].rows]);
+      phase = buffer(16, bufferUsage.UNIFORM | bufferUsage.COPY_DST);
+      projected = buffer(cells * 4, bufferUsage.STORAGE | bufferUsage.COPY_DST);
+    }
+
+    function makeSlot() {
+      const cells = levels[0].cols * levels[0].rows;
+      return {
+        color: texture(width, height, "rgba8unorm", read | copyIn | textureUsage.COPY_SRC, "Decoded frame"),
+        vectors: buffer(cells * 8, bufferUsage.STORAGE),
+        entries: buffer(cells * 4, bufferUsage.STORAGE),
+        divergence: buffer(9 * 4, bufferUsage.STORAGE),
+      };
+    }
+
+    function dispatch(pass, name, resources, x, y) {
+      const pipe = pipes[name];
+      const group = device.createBindGroup({
+        layout: pipe.getBindGroupLayout(0),
+        entries: resources.map((resource, binding) => ({binding, resource})),
+      });
+      pass.setPipeline(pipe);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(x, y);
+    }
+
+    function prepareMotion(pass, current, prevLuma, currLuma) {
+      const sceneLevel = Math.min(levels.length - 1, 3);
+      const scene = {buffer: current.divergence};
+      dispatch(pass, "scene", [currLuma[sceneLevel].view, prevLuma[sceneLevel].view, scene], 3, 3);
+      for (let index = levels.length - 1; index >= 0; index--) {
+        const level = levels[index];
+        const coarser = levels[index + 1];
+        const name = !coarser ? "coarse" : index === 2 ? "refineLocal" : index ? "refine" : "fine";
+        dispatch(pass, name, [
+          currLuma[index].view, prevLuma[index].view,
+          (coarser || level).filtered.view, level.raw.view,
+        ], level.cols, level.rows);
+        dispatch(pass, "filter", [level.raw.view, level.filtered.view],
+          Math.ceil(level.cols / 8), Math.ceil(level.rows / 8));
+      }
+      const finest = levels[0];
+      dispatch(pass, "project", [
+        finest.filtered.view, currLuma[0].view, prevLuma[0].view,
+        {buffer: current.vectors}, {buffer: current.entries}, scene,
+      ], Math.ceil(finest.cols / 8), Math.ceil(finest.rows / 8));
+    }
+
+    function upload(video, time, sourceFps) {
+      if (closed) return;
       const limit = getFrameLimit();
-      const shouldBypass = limit && sourceFps && limit <= sourceFps * playbackRate * 1.01;
-      if (Boolean(shouldBypass) !== bypass) {
-        bypass = Boolean(shouldBypass);
+      playbackRate = video.playbackRate;
+      const skip = Boolean(limit && sourceFps && limit <= sourceFps * playbackRate * 1.01);
+      if (skip !== bypass) {
+        bypass = skip;
         reset();
       }
-      if (closed || bypass || copying || pending.length >= 4) return;
-      if (video.videoWidth > 1920 || video.videoHeight > 1080) {
+      if (bypass) return;
+      if (inFlight >= 2) {
+        busyDrops++;
+        return;
+      }
+      const w = video.videoWidth, h = video.videoHeight;
+      if (w > 1920 || h > 1080) {
         fail(new Error("FidelityFX supports source video up to 1080p"));
         return;
       }
-      copying = true;
-      const width = Math.max(2, video.videoWidth & ~1);
-      const height = Math.max(2, video.videoHeight & ~1);
-      if (canvas.width !== width || canvas.height !== height) {
-        reset();
-        canvas.width = width;
-        canvas.height = height;
+      if (width !== w || height !== h) resize(w, h);
+      const previous = frames.at(-1);
+      const gap = time - previous?.time;
+      cadence = sourceFps ? 1 / sourceFps : cadence || 1 / 30;
+      const contiguous = gap > 0 && gap < cadence * 1.65;
+      const prevLuma = pyramids[pyramidIndex];
+      pyramidIndex ^= 1;
+      const currLuma = pyramids[pyramidIndex];
+      const oldestTime = time - Math.max(4 * cadence, 0.12 * playbackRate);
+      while (frames.length > 2 && frames[1].time < oldestTime) frames.shift();
+      let slot = slots.find(candidate => !frames.some(frame => frame.slot === candidate));
+      if (!slot) {
+        if (slots.length < 8) {
+          slot = makeSlot();
+          slots.push(slot);
+        } else slot = frames.shift().slot;
       }
-      const current = generation;
-      const duration = sourceFps ? 1 / sourceFps : cadence || 1 / 30;
-      cadence = duration;
-      let image;
-      try {
-        image = new VideoFrame(video);
-        let format = image.format === "NV12" ? 0 : image.format === "I420" ? 1 : 2;
-        const color = image.colorSpace;
-        if (color.transfer === "pq" || color.transfer === "hlg" ||
-            (color.matrix && !["bt709", "bt470bg", "smpte170m"].includes(color.matrix))) format = 2;
-        const rect = image.visibleRect;
-        const sameSize = rect.width === width && rect.height === height &&
-          image.displayWidth === width && image.displayHeight === height;
-        let bytes;
-        if (sameSize) {
-          const pixels = width * height;
-          const luma = {offset: 0, stride: width};
-          const options = format === 0 ? {layout: [luma, {offset: pixels, stride: width}]} :
-            format === 1 ? {layout: [luma, {offset: pixels, stride: width / 2},
-              {offset: pixels + pixels / 4, stride: width / 2}]} : {format: "RGBA"};
-          try {
-            bytes = image.allocationSize(options);
-            if (bytes !== width * height * (format === 2 ? 4 : 1.5)) bytes = 0;
-            if (bytes) await image.copyTo(packet.subarray(9, 9 + bytes), options);
-          } catch { bytes = 0; }
-        }
-        if (closed || current !== generation) return;
-        if (!bytes) {
-          format = 2;
-          bytes = width * height * 4;
-          if (capture.width !== width || capture.height !== height) {
-            capture.width = width;
-            capture.height = height;
-          }
-          reader ||= capture.getContext("2d", {alpha: false, willReadFrequently: true});
-          reader.drawImage(image, 0, 0, width, height);
-          packet.set(reader.getImageData(0, 0, width, height).data, 9);
-        }
-        const gap = time - lastTime;
-        const previous = gap > 0 && gap < duration * 1.65 ? lastTime : undefined;
-        header.setUint16(0, width, true);
-        header.setUint16(2, height, true);
-        packet[4] = Number(previous === undefined);
-        packet[5] = Number(color.matrix === "bt470bg" || color.matrix === "smpte170m") + 2 * Number(Boolean(color.fullRange));
-        packet[6] = format;
-        header.setUint16(7, Math.min(50000, Math.max(100, Math.round(duration * 100000))), true);
-        socket.send(packet.subarray(0, 9 + bytes));
-        pending.push({image, time, previous, width, height, generation: current, sent: performance.now()});
-        image = null;
-        lastTime = time;
-      } catch (error) {
-        if (current === generation) fail(error);
-      } finally {
-        image?.close();
-        copying = false;
+      device.queue.copyExternalImageToTexture({source: video}, {texture: slot.color.image}, [width, height]);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      dispatch(pass, "luma", [slot.color.view, currLuma[0].view], levels[0].cols, levels[0].rows);
+      for (let index = 1; index < levels.length; index++) {
+        const {cols, rows} = levels[index];
+        dispatch(pass, "downsample", [currLuma[index - 1].view, currLuma[index].view], cols, rows);
       }
+      if (contiguous) prepareMotion(pass, slot, prevLuma, currLuma);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      const target = limit ? Math.ceil(limit * cadence / playbackRate - 0.06) : maxMultiplier;
+      const multiplier = contiguous ? Math.max(1, Math.min(maxMultiplier, target)) : 1;
+      frames.push({slot, time, multiplier});
+      inFlight++;
+      device.queue.onSubmittedWorkDone().catch(fail).finally(() => { inFlight--; });
     }
 
-    function receive({data}) {
-      if (!ready) {
-        if (data !== "ready") { fail(new Error("FidelityFX authentication failed")); return; }
-        ready = true;
-        clearTimeout(timeout);
-        resolve({
-          upload, drawAt, reset, dispose, tick, resources, delay: 0.075,
-          get outputRate() { return cadence ? 2 * playbackRate / cadence : 0; },
-        });
-        return;
-      }
-      const frame = pending.shift();
-      if (!frame || !(data instanceof ArrayBuffer) || data.byteLength !== frame.width * frame.height * 1.5) {
-        frame?.image.close();
-        fail(new Error("FidelityFX returned invalid video data"));
-        return;
-      }
-      if (frame.generation !== generation) return;
-      try {
-        if (frame.previous !== undefined) {
-          const image = new VideoFrame(data, {
-            format: "NV12", codedWidth: frame.width, codedHeight: frame.height, timestamp: 0,
-            colorSpace: {matrix: "smpte170m", primaries: "bt709", transfer: "bt709", fullRange: false},
-            transfer: [data],
-          });
-          queue.push({image, time: (frame.previous + frame.time) / 2});
-        }
-        queue.push(frame);
-        while (queue.length > 16) queue.shift().image.close();
-        totalLatency += performance.now() - frame.sent;
-        samples++;
-      } catch (error) {
-        frame.image.close();
-        fail(error);
-      }
-    }
     function drawAt(time) {
-      if (bypass || !queue.length || queue[0].time > time || time - queue.at(-1).time > 0.1) return null;
-      while (queue.length > 1 && queue[1].time <= time) queue.shift().image.close();
-      const frame = queue[0];
-      if (frame === displayed) return false;
-      output.drawImage(frame.image, 0, 0, canvas.width, canvas.height);
-      displayed = frame;
+      if (closed || bypass || !frames.length || time < frames[0].time || time - frames.at(-1).time > 0.1) return null;
+      if (presenting) return false;
+      const nextIndex = frames.findIndex(frame => frame.time > time);
+      const next = frames[nextIndex];
+      const frame = nextIndex < 0 ? frames.at(-1) : frames[nextIndex - 1];
+      const span = next ? next.time - frame.time : 0;
+      const step = next ? Math.min(next.multiplier - 1, Math.floor((time - frame.time) / span * next.multiplier)) : 0;
+      const fraction = step ? step / next.multiplier : 0;
+      const at = frame.time + fraction * span;
+      if (displayed === at) return false;
+      const encoder = device.createCommandEncoder();
+      const output = context.getCurrentTexture();
+      if (step) {
+        const current = next.slot;
+        phaseTime[0] = fraction;
+        device.queue.writeBuffer(phase, 0, phaseData);
+        encoder.clearBuffer(projected);
+        const pass = encoder.beginComputePass();
+        const {cols, rows} = levels[0];
+        dispatch(pass, "scatter", [
+          {buffer: current.vectors}, {buffer: current.entries}, {buffer: projected}, {buffer: phase},
+        ], Math.ceil(cols / 8), Math.ceil(rows / 8));
+        dispatch(pass, "interpolate", [
+          frame.slot.color.view, current.color.view, sampler, {buffer: current.vectors},
+          {buffer: projected}, {buffer: current.divergence}, output.createView(), {buffer: phase},
+        ], cols, rows);
+        pass.end();
+      } else {
+        encoder.copyTextureToTexture({texture: frame.slot.color.image}, {texture: output}, [width, height]);
+      }
+      device.queue.submit([encoder.finish()]);
+      displayed = at;
+      presenting = true;
+      device.queue.onSubmittedWorkDone().catch(fail).finally(() => { presenting = false; });
       return true;
     }
-    function tick(now) {
-      if (pending.length && now - pending[0].sent > 3000) fail(new Error("FidelityFX frame timed out"));
-    }
-    function resources() {
-      const roundTripMs = samples ? totalLatency / samples : null;
-      totalLatency = samples = 0;
-      return {roundTripMs, passthrough: bypass};
-    }
 
-    port.onMessage.addListener(message => {
+    function dispose() {
       if (closed) return;
-      if (message.error) { fail(new Error(message.error)); return; }
-      if (socket || message.version !== 1 || !Number.isInteger(message.port) ||
-          message.port < 1 || message.port > 65535 || !/^[a-f0-9]{64}$/.test(message.token)) {
-        fail(new Error("Invalid FidelityFX helper response"));
-        return;
-      }
-      socket = new WebSocket("ws://127.0.0.1:" + message.port);
-      socket.binaryType = "arraybuffer";
-      socket.onopen = () => socket.send(message.token);
-      socket.onmessage = receive;
-      socket.onerror = socket.onclose = () => fail(new Error("FidelityFX connection closed"));
-    });
-    port.onDisconnect.addListener(() => fail(new Error(chrome.runtime.lastError?.message || "FidelityFX helper disconnected")));
-  });
+      closed = true;
+      signal.removeEventListener("abort", dispose);
+      release();
+      context.unconfigure();
+      device.destroy();
+    }
+    signal.addEventListener("abort", dispose, {once: true});
+    return {
+      upload, drawAt, reset, dispose, delay: 0.045,
+      resources() {
+        const dropped = busyDrops;
+        busyDrops = 0;
+        return {bytes, passthrough: bypass, resolution: !bypass && width ? [width, height] : undefined, dropped};
+      },
+      get outputRate() { return cadence ? (frames.at(-1)?.multiplier || 1) * playbackRate / cadence : 0; },
+    };
+  } catch (error) {
+    device.destroy();
+    throw error;
+  }
 }

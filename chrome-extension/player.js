@@ -2,6 +2,7 @@
   let enabled = true, preferred = "ai", selected, active;
   let frameLimit = 120;
   let showInfo = true;
+  let fidelityFxMultiplier = 2;
   function save(setting) {
     if (chrome.runtime?.id) chrome.storage.local.set(setting).catch(() => {});
   }
@@ -21,16 +22,18 @@
   modeOptions.setAttribute("aria-label", "Playback mode");
   modeMenu.append(modeTrigger, modeOptions);
 
-  const isNvidiaMode = mode => mode === "vfg" || mode === "fruc";
+  const platform = navigator.userAgentData?.platform || navigator.platform;
+  const isWindows = /^win/i.test(platform);
+  const isMac = /^mac/i.test(platform);
   async function detectGraphics() {
     const isAmd = name => /\b(?:amd|radeon|ati)\b|^0x1002$/i.test(name || "");
-    const isNvidia = name => /\bnvidia\b|^0x10de$/i.test(name || "");
-    const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+    const isNvidia = name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "");
+    const adapterOptions = isWindows ? {powerPreference: "high-performance"} : undefined;
+    const adapter = isMac ? null : await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
     const info = adapter?.info;
     const names = info && !info.isFallbackAdapter ? [info.vendor, info.description] : [];
 
-    // Try WebGL when WebGPU is unavailable, uses integrated graphics, or
-    // doesn't expose a vendor identifier.
+    // WebGL can expose the GPU model even when WebGPU only identifies its vendor.
     const gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
     if (gl) {
       try {
@@ -41,7 +44,11 @@
         gl.getExtension("WEBGL_lose_context")?.loseContext();
       }
     }
-    return {amd: names.some(isAmd), nvidia: names.some(isNvidia)};
+    return {
+      amd: !isWindows && !isMac && names.some(isAmd),
+      nvidia: !isMac && names.some(isNvidia),
+      appleM1: isMac && names.some(name => /\bApple M1\b(?!\s+(?:Pro|Max|Ultra)\b)/i.test(name)),
+    };
   }
 
   function select(mode) {
@@ -61,7 +68,6 @@
     ["hybrid", "Hybrid", "Neural interpolation with local optical flow correction"],
     ["fidelityfx", "AMD FidelityFX", "Double the source frame rate with AMD FidelityFX, up to the selected FPS"],
     ["original", "Original", "Play the original video without interpolation"],
-    ["vfg", "NVIDIA VFG", "Generate frames with NVIDIA VFG up to the selected FPS"],
   ]) {
     const button = document.createElement("button");
     button.type = "button";
@@ -69,7 +75,7 @@
     button.value = value;
     button.textContent = label;
     button.title = title;
-    button.hidden = isNvidiaMode(value) || value === "fidelityfx";
+    button.hidden = value === "fidelityfx";
     button.setAttribute("aria-pressed", "false");
     button.addEventListener("click", event => {
       event.stopPropagation();
@@ -187,32 +193,55 @@
     host.append(hud);
     let renderer, raf, callback, previous, latest, sourceFps, issue;
     const requested = preferred;
-    let mode = requested === "fidelityfx" ? "Connecting to AMD FidelityFX" :
-      requested === "vfg" ? "Connecting to NVIDIA VFG" : "Загрузка нейросети";
+    let mode = requested === "fidelityfx" ? "Loading FidelityFX (WebGPU)" : "Загрузка нейросети";
     let disposed = false, fallback = false;
     let output = 0, started = performance.now(), next = 0;
     let browserMs = 0;
+    const drawIntervals = [];
+    let lastDraw;
+    let lastVideoSample;
     const events = new AbortController();
     function updateHud(fps, elapsed) {
       const stats = renderer?.resources?.(elapsed, showInfo);
       const browserLoad = elapsed > 0 ? Math.min(100, 100 * (browserMs + (stats?.browserMs || 0)) / elapsed) : null;
       browserMs = 0;
       if (!showInfo) return;
-      if (stats?.passthrough && sourceFps) fps = Math.round(sourceFps * video.playbackRate);
+      const quality = video.getVideoPlaybackQuality?.();
+      let videoDrops;
+      if (quality && lastVideoSample) {
+        const seconds = (quality.creationTime - lastVideoSample.creationTime) / 1000;
+        const frames = quality.totalVideoFrames - lastVideoSample.totalVideoFrames;
+        const drops = quality.droppedVideoFrames - lastVideoSample.droppedVideoFrames;
+        if (seconds > 0 && frames >= drops && drops >= 0) {
+          videoDrops = drops / seconds;
+          if (stats?.passthrough) fps = Math.round((frames - drops) / seconds);
+        }
+      }
+      lastVideoSample = quality;
       const lines = [mode + " · FPS " + (sourceFps ? Math.round(sourceFps) : "—") + " / " + fps];
       const load = (label, value) => Number.isFinite(value) ? label + " ≈" + Math.round(value) + "%" : "";
       const memory = (label, bytes) => Number.isFinite(bytes) ? label + " ≈" + Math.round(bytes / 1048576) + " МиБ" : "";
       const add = (...items) => { if (items.some(Boolean)) lines.push(items.filter(Boolean).join(" · ")); };
-      add(load("GPU", stats?.gpu), memory(stats?.frameBuffers ? "Видеопамять кадров" : "Видеопамять", stats?.bytes));
-      add(load("Поток Chrome", browserLoad), load("ЦП хоста", stats?.hostCpu));
-      add(memory("Кадры в ОЗУ Chrome", stats?.ramBytes),
-        Number.isFinite(stats?.roundTripMs) ? "Обмен с хостом " + Math.round(stats.roundTripMs) + " мс" : "");
+      add(load("GPU", stats?.gpu), memory("Видеопамять", stats?.bytes));
+      add(load("Поток Chrome", browserLoad));
+      add(stats?.resolution?.join(" × "));
+      if (drawIntervals.length) {
+        drawIntervals.sort((a, b) => a - b);
+        add("Интервал отрисовки p95 " + Math.round(drawIntervals[Math.ceil(0.95 * drawIntervals.length) - 1]) + " мс");
+        drawIntervals.length = 0;
+      }
+      if (stats?.resolution && elapsed > 0 && Number.isFinite(stats.dropped))
+        add("Пропуски при занятости " + (stats.dropped * 1000 / elapsed).toFixed(1) + "/с");
+      if (Number.isFinite(videoDrops)) add("Пропуски видео Chrome " + videoDrops.toFixed(1) + "/с");
       hud.textContent = lines.join("\n");
     }
     function reset() {
+      lastVideoSample = undefined;
       previous = latest = undefined;
       renderer?.reset();
       next = output = 0;
+      drawIntervals.length = 0;
+      lastDraw = undefined;
       started = performance.now();
       canvas.hidden = true;
       if (!issue) updateHud(0, 0);
@@ -272,10 +301,18 @@
         const began = showInfo ? performance.now() : null;
         const presented = renderer.drawAt(playhead - delay);
         if (began !== null) browserMs += performance.now() - began;
-        if (presented === null) canvas.hidden = true;
+        if (presented === null) {
+          canvas.hidden = true;
+          lastDraw = undefined;
+        }
         else if (presented) {
           canvas.hidden = false;
           output++;
+          if (showInfo) {
+            const drawn = performance.now();
+            if (lastDraw !== undefined) drawIntervals.push(drawn - lastDraw);
+            lastDraw = drawn;
+          }
         }
         if (capped) {
           const step = 1000 / frameLimit;
@@ -325,7 +362,7 @@
       canvas.addEventListener("webglcontextlost", () => fail("Видеокарта недоступна"), {signal: events.signal});
       mode = "Оптический поток";
       reset();
-      try { renderer = kittyRenderer(canvas, failCapture); start(); }
+      try { renderer = kittyRenderer(canvas, failCapture, isWindows); start(); }
       catch { select(undefined); fail("Ускорение WebGL 2 недоступно"); }
     }
     select(preferred);
@@ -334,37 +371,16 @@
       const title = button.title;
       function fallbackFromFidelityFx(error) {
         if (disposed || !contextAlive()) return;
-        button.title = /not found/i.test(error.message)
-          ? "Install the local AMD FidelityFX helper" : error.message;
+        button.title = error.message;
         startFlow(error);
       }
-      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit).then(nativeRenderer => {
-        if (disposed || !contextAlive()) { nativeRenderer.dispose(); return; }
-        renderer = nativeRenderer;
-        mode = "AMD FidelityFX";
+      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit, fidelityFxMultiplier).then(fidelityFx => {
+        if (disposed || !contextAlive()) { fidelityFx.dispose(); return; }
+        renderer = fidelityFx;
+        mode = button.textContent;
         button.title = title;
         reset(); start();
       }).catch(fallbackFromFidelityFx);
-    } else if (requested === "vfg") {
-      const controller = new AbortController();
-      events.signal.addEventListener("abort", () => controller.abort(), {once: true});
-      function failed(error) {
-        if (disposed || !contextAlive()) return;
-        stop();
-        renderer?.dispose();
-        renderer = undefined;
-        select(undefined);
-        fail(error.message);
-        const button = controls.querySelector('[value="vfg"]');
-        button.title = error.message;
-      }
-      createVfgRenderer(canvas, controller.signal, failed, () => frameLimit).then(vfg => {
-        if (disposed || !contextAlive()) { vfg.dispose(); return; }
-        renderer = vfg;
-        mode = "NVIDIA VFG";
-        controls.querySelector('[value="vfg"]').title = "Generate frames with NVIDIA VFG up to the selected FPS";
-        reset(); start();
-      }).catch(failed);
     } else if (preferred === "flow") startFlow();
     else kittyNeuralRenderer(canvas,startFlow,preferred === "hybrid").then(neural => {
       if (disposed || fallback || !contextAlive()) { neural.dispose(); return; }
@@ -373,7 +389,10 @@
       reset(); start();
     }).catch(startFlow);
     return {video, setInfoVisible(visible) {
+      lastVideoSample = undefined;
       hud.hidden = !visible;
+      drawIntervals.length = 0;
+      lastDraw = undefined;
       if (visible && !issue) {
         updateHud(0, 0);
         started = performance.now();
@@ -428,13 +447,24 @@
   Promise.all([
     chrome.storage.local.get(["enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
     detectGraphics().catch(() => ({})),
-  ]).then(([saved, {amd, nvidia}]) => {
+  ]).then(([saved, {amd, nvidia, appleM1}]) => {
     if (typeof saved.enabled === "boolean") enabled = saved.enabled;
     if (amd) preferred = "fidelityfx";
+    if (appleM1) preferred = "flow";
     for (const button of modeOptions.children) {
-      if (isNvidiaMode(button.value)) button.hidden = !nvidia;
-      if (button.value === "fidelityfx") button.hidden = !amd;
+      if (button.value === "fidelityfx") {
+        button.hidden = !amd && !nvidia;
+        if (nvidia) {
+          fidelityFxMultiplier = 8;
+          button.textContent = "FidelityFX (WebGPU)";
+          button.title = "Generate frames in Chrome at source resolution up to the selected FPS";
+        }
+      }
       if (!button.hidden && button.value === saved.preferred && button.value !== "original") preferred = button.value;
+    }
+    if (saved.preferred === "vfg" || saved.preferred === "fruc") {
+      if (nvidia) preferred = "fidelityfx";
+      save({preferred});
     }
     if (["60", "120", "Max"].includes(saved.rate)) showRate(saved.rate);
     if (typeof saved.showInfo === "boolean") showInfo = saved.showInfo;

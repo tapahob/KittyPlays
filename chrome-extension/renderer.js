@@ -1,7 +1,9 @@
 // GPU motion estimation runs at the source cadence. The display pass only samples
 // two colour textures and the previously computed motion field.
-function kittyRenderer(canvas, onCaptureError) {
-  const gl = canvas.getContext("webgl2", {alpha: false, antialias: false, depth: false});
+function kittyRenderer(canvas, onCaptureError, requireHardware = false) {
+  const gl = canvas.getContext("webgl2", {
+    alpha: false, antialias: false, depth: false, failIfMajorPerformanceCaveat: requireHardware,
+  });
   if (!gl) throw new Error("WebGL 2 unavailable");
   const vertex = `#version 300 es
     out vec2 uv;
@@ -88,7 +90,7 @@ function kittyRenderer(canvas, onCaptureError) {
   let width, height, cols, rows, probe, pending, serial = 0;
   let slots = [], frames = [];
   let captureGeneration = 0, capturing = false, bitmapUploadMs = 0;
-  let useBitmap = typeof createImageBitmap === "function";
+  let useBitmap = !requireHardware && typeof createImageBitmap === "function";
   const timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
   const uploadTiming = {calls: 0}, flowTiming = {calls: 0}, drawTiming = {calls: 0};
   const timings = [uploadTiming, flowTiming, drawTiming];
@@ -118,10 +120,11 @@ function kittyRenderer(canvas, onCaptureError) {
     for (const stage of timings) stage.calls = 0;
     return known ? Math.min(100, 100 * busy / elapsed) : null;
   }
-  function texture(w,h,levels) {
+  function texture(w,h,levels,allocate = true) {
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D,t);
-    gl.texStorage2D(gl.TEXTURE_2D,levels,gl.RGBA8,w,h);
+    if (allocate) gl.texStorage2D(gl.TEXTURE_2D,levels,gl.RGBA8,w,h);
+    else gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,levels-1);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,levels > 1 ? gl.LINEAR_MIPMAP_NEAREST : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
@@ -196,11 +199,13 @@ function kittyRenderer(canvas, onCaptureError) {
     let slot = slots.find(s => frames.every(f => f.slot !== s));
     if (!slot) {
       const levels = Math.min(6,1+Math.floor(Math.log2(Math.max(width,height))));
-      slot = {image:texture(width,height,levels),motion:texture(cols,rows,1)};
+      slot = {image:texture(width,height,levels,!requireHardware),motion:texture(cols,rows,1)};
       slots.push(slot);
     }
     bind(1,slot.image);
-    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,source);
+    // Chromium can copy a hardware-decoded video texture directly with texImage2D.
+    if (requireHardware) gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,source);
+    else gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,source);
     gl.generateMipmap(gl.TEXTURE_2D);
     const previous = frames.at(-1);
     let query;

@@ -40,25 +40,3 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   load().then(reply, error => reply({error: error.message}));
   return true;
 });
-
-chrome.runtime.onConnect.addListener(port => {
-  const name = port.name === "kittyplays-fidelityfx" ? "com.kittyplays.fidelityfx" :
-    port.name === "kittyplays-vfg" ? "com.kittyplays.vfg" : null;
-  if (!name || port.sender?.origin !== "https://www.youtube.com" ||
-      port.sender.id !== chrome.runtime.id || port.sender.frameId !== 0) return;
-  const host = chrome.runtime.connectNative(name);
-  let disconnected = false;
-  host.onMessage.addListener(message => {
-    if (!disconnected) port.postMessage(message);
-  });
-  host.onDisconnect.addListener(() => {
-    const error = chrome.runtime.lastError?.message || "KittyPlays helper disconnected";
-    if (disconnected) return;
-    port.postMessage({error});
-    port.disconnect();
-  });
-  port.onDisconnect.addListener(() => {
-    disconnected = true;
-    host.disconnect();
-  });
-});

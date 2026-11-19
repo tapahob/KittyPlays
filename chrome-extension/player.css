@@ -61,10 +61,18 @@
 .kittyplays-limit summary:focus-visible,
 .kittyplays-info-bar button:focus-visible,
 .kittyplays-modes button:focus-visible { outline: 2px solid #fff0fa; outline-offset: -2px; }
-.kittyplays-limit { position: relative; }
+.kittyplays-limit {
+  --kittyplays-trigger-content-height: 24px;
+  position: relative;
+}
 .kittyplays-limit summary,
 .kittyplays-limit-options button { display: flex; align-items: center; gap: 5px; }
-.kittyplays-limit summary { padding: 3px 6px; background: #5a2946; }
+.kittyplays-limit summary {
+  box-sizing: content-box;
+  min-height: var(--kittyplays-trigger-content-height);
+  padding: 3px 6px;
+  background: #5a2946;
+}
 .kittyplays-limit summary::-webkit-details-marker { display: none; }
 .kittyplays-limit summary::after {
   content: "";
@@ -95,7 +103,12 @@
   inset-inline-end: auto;
   min-width: max-content;
 }
-.kittyplays-cat { display: block; width: 24px; height: 24px; border-radius: 5px; }
+.kittyplays-cat {
+  display: block;
+  width: var(--kittyplays-trigger-content-height);
+  height: var(--kittyplays-trigger-content-height);
+  border-radius: 5px;
+}
 .kittyplays-limit-options .kittyplays-cat { width: 32px; height: 32px; border-radius: 7px; }
 .kittyplays-sparkles { position: absolute; inset: 0; pointer-events: none; }
 .kittyplays-sparkles::before,

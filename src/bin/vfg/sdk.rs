@@ -206,6 +206,10 @@ impl Effect<'_> {
         (self.width, self.height)
     }
 
+    pub fn gpu_bytes(&self) -> u64 {
+        self.previous.buffer_bytes + self.current.buffer_bytes + self.output.buffer_bytes
+    }
+
     fn set(&self, name: &CStr, value: u32) -> Result<()> {
         check(
             unsafe { (self.api.set_u32)(self.handle, name.as_ptr(), value) },
@@ -234,31 +238,40 @@ impl Effect<'_> {
         Ok(image)
     }
 
-    pub fn interpolate(&mut self, before: &[u8], after: &[u8], multiplier: u32) -> Result<Vec<u8>> {
+    pub fn interpolate(
+        &mut self,
+        before: Option<&[u8]>,
+        after: &[u8],
+        multiplier: u32,
+    ) -> Result<Vec<u8>> {
         let frame_bytes = (self.width * self.height * 4) as usize;
-        if before.len() != frame_bytes
+        if before.is_some_and(|pixels| pixels.len() != frame_bytes)
             || after.len() != frame_bytes
             || !(2..=8).contains(&multiplier)
         {
             return Err("Invalid image size or frame multiplier".into());
         }
         let mut output = vec![0; frame_bytes * (multiplier - 1) as usize];
-        let previous = self.cpu_image(NonNull::from(before).cast())?;
+        let previous = before
+            .map(|pixels| self.cpu_image(NonNull::from(pixels).cast()))
+            .transpose()?;
         let current = self.cpu_image(NonNull::from(after).cast())?;
         // The SDK reads the input buffers and writes distinct output slices.
         // Synchronize even on an SDK error before the borrowed pixels can go away.
         let result = (|| {
             unsafe {
-                check(
-                    (self.api.transfer)(
-                        &previous,
-                        &mut self.previous,
-                        1.0,
-                        self.stream,
-                        null_mut(),
-                    ),
-                    "Upload previous image",
-                )?;
+                if let Some(previous) = &previous {
+                    check(
+                        (self.api.transfer)(
+                            previous,
+                            &mut self.previous,
+                            1.0,
+                            self.stream,
+                            null_mut(),
+                        ),
+                        "Upload previous image",
+                    )?;
+                }
                 check(
                     (self.api.transfer)(&current, &mut self.current, 1.0, self.stream, null_mut()),
                     "Upload current image",
@@ -304,6 +317,7 @@ impl Effect<'_> {
         );
         result?;
         sync?;
+        std::mem::swap(&mut self.previous, &mut self.current);
         Ok(output)
     }
 }
