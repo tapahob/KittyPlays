@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern('^[a-p]{32}$')]
     [string]$ExtensionId,
-    [string]$Python
+    [Parameter(Mandatory)]
+    [string]$SdkBin
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,30 +11,27 @@ $project = Split-Path $PSScriptRoot -Parent
 $install = Join-Path $project 'tools/vfg'
 New-Item -ItemType Directory -Force -Path $install | Out-Null
 
-if (!$Python) {
-    $venv = Join-Path $install '.venv'
-    python -m venv $venv
-    if ($LASTEXITCODE) { throw 'Could not create the VFG Python environment.' }
-    $Python = Join-Path $venv 'Scripts/python.exe'
+$SdkBin = (Resolve-Path -LiteralPath $SdkBin).Path
+foreach ($dll in @('NVVideoEffects.dll', 'NVCVImage.dll', 'nvVFXVideoFrameGeneration.dll')) {
+    if (!(Test-Path -LiteralPath (Join-Path $SdkBin $dll) -PathType Leaf)) {
+        throw "Missing $dll. Select the NVIDIA Maxine VFX SDK binary directory with VFG installed."
+    }
 }
-$Python = (Resolve-Path -LiteralPath $Python).Path
-& $Python -m pip install --disable-pip-version-check --extra-index-url https://download.pytorch.org/whl/cu128 'torch==2.11.0+cu128' 'nvidia-vfx==0.2.0.0' 'numpy==2.5.5' 'websockets==15.0.1'
-if ($LASTEXITCODE) { throw 'Could not install NVIDIA VFG dependencies.' }
 
-$rustc = Get-Command rustc -ErrorAction SilentlyContinue
-$compiler = if ($rustc) { $rustc.Source } else { Join-Path $env:USERPROFILE '.cargo/bin/rustc.exe' }
-$launcherSource = Join-Path $PSScriptRoot 'vfg-launcher.rs'
-$hostSource = Join-Path $PSScriptRoot 'vfg-host.py'
-$revision = (Get-FileHash $launcherSource).Hash.Substring(0, 12) + '-' + (Get-FileHash $hostSource).Hash.Substring(0, 12)
+$cargo = Get-Command cargo -ErrorAction SilentlyContinue
+$compiler = if ($cargo) { $cargo.Source } else { Join-Path $env:USERPROFILE '.cargo/bin/cargo.exe' }
+$build = Join-Path $project 'target/vfg-build'
+& $compiler build --release --locked --bin kittyplays-vfg --manifest-path (Join-Path $project 'Cargo.toml') --target-dir $build
+if ($LASTEXITCODE) { throw 'Could not compile the Rust native messaging host.' }
+$binary = Join-Path $build 'release/kittyplays-vfg.exe'
+$revision = (Get-FileHash $binary).Hash.Substring(0, 16)
 $runtime = Join-Path $install $revision
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $launcher = Join-Path $runtime 'kittyplays-vfg.exe'
 if (!(Test-Path -LiteralPath $launcher)) {
-    & $compiler -O $launcherSource -o $launcher
-    if ($LASTEXITCODE) { throw 'Could not compile the native messaging launcher.' }
+    Copy-Item -LiteralPath $binary -Destination $launcher
 }
-Copy-Item -LiteralPath $hostSource -Destination $runtime -Force
-[IO.File]::WriteAllText((Join-Path $runtime 'python-path.txt'), $Python)
+[IO.File]::WriteAllText((Join-Path $runtime 'sdk-path.txt'), $SdkBin)
 
 $hostName = 'com.kittyplays.vfg'
 $manifest = Join-Path $install "$hostName.json"
