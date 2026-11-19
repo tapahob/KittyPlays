@@ -1,0 +1,150 @@
+$ErrorActionPreference = 'Stop'
+$install = Join-Path $env:LOCALAPPDATA 'KittyPlays\NVIDIA'
+New-Item -ItemType Directory -Force -Path $install | Out-Null
+$log = Join-Path $install 'install.log'
+Start-Transcript -Path $log -Force | Out-Null
+
+function Get-KittyPlaysOrigins {
+    $chrome = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
+    $ids = foreach ($profile in (Get-ChildItem -LiteralPath $chrome -Directory -ErrorAction SilentlyContinue)) {
+        foreach ($settingsFile in @('Secure Preferences', 'Preferences')) {
+            $path = Join-Path $profile.FullName $settingsFile
+            if (!(Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            try {
+                $settings = (Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json).extensions.settings
+            } catch { continue }
+            if (!$settings) { continue }
+            foreach ($entry in $settings.PSObject.Properties) {
+                if ($entry.Name -cnotmatch '^[a-p]{32}$') { continue }
+                $extension = $entry.Value
+                $manifest = $extension.manifest
+                if (!$manifest -and $extension.path) {
+                    $extensionPath = $extension.path
+                    if (![IO.Path]::IsPathRooted($extensionPath)) {
+                        $extensionPath = Join-Path (Join-Path $profile.FullName 'Extensions') $extensionPath
+                    }
+                    try {
+                        $manifest = Get-Content -LiteralPath (Join-Path $extensionPath 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+                    } catch { continue }
+                }
+                if ($manifest.name -like 'KittyPlays*' -and $manifest.manifest_version -eq 3 -and
+                    $manifest.permissions -contains 'nativeMessaging' -and
+                    @($manifest.content_scripts | ForEach-Object { $_.js }) -contains 'vfg.js') {
+                    $entry.Name
+                }
+            }
+        }
+    }
+    @($ids | Sort-Object -Unique | ForEach-Object { "chrome-extension://$_/" })
+}
+
+function Install-MaxineRuntime {
+    $url = 'https://pypi.nvidia.com/nvidia-vfx/nvidia_vfx-0.2.0.0-cp312-abi3-win_amd64.whl'
+    $expectedHash = 'CEBAA12411F7E22B39293205C5C4D07B8073D14CA1E0E7727EE4375207A36445'
+    $destination = Join-Path $install 'Maxine-1.3.0'
+    $marker = Join-Path $destination 'sdk-sha256.txt'
+    $required = @('NVVideoEffects.dll', 'NVCVImage.dll', 'nvVFXVideoFrameGeneration.dll', 'cudart64_12.dll')
+    $missing = @($required | Where-Object { !(Test-Path -LiteralPath (Join-Path $destination $_) -PathType Leaf) })
+    if ((Test-Path -LiteralPath $marker -PathType Leaf) -and !$missing.Count -and
+        [IO.File]::ReadAllText($marker) -eq $expectedHash) {
+        return $destination
+    }
+
+    $temporary = Join-Path $install ([guid]::NewGuid().ToString('N') + '.whl')
+    try {
+        Write-Host 'Downloading NVIDIA Maxine VFX SDK (416 MiB)...'
+        & "$env:SystemRoot\System32\curl.exe" --fail --silent --show-error --location --retry 2 --proto '=https' --proto-redir '=https' --output $temporary $url
+        if ($LASTEXITCODE) { throw 'Could not download the NVIDIA SDK.' }
+        if ((Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash -ne $expectedHash) {
+            throw 'NVIDIA SDK download did not match the expected SHA-256.'
+        }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        New-Item -ItemType Directory -Force -Path $destination | Out-Null
+        $licenses = Join-Path $destination 'licenses'
+        New-Item -ItemType Directory -Force -Path $licenses | Out-Null
+        $zip = [IO.Compression.ZipFile]::OpenRead($temporary)
+        try {
+            foreach ($entry in $zip.Entries) {
+                if ($entry.FullName -match '^nvvfx/libs/((?:cudart|npp)[A-Za-z0-9_]+\.dll|NVCVImage\.dll|NVVideoEffects\.dll|nvngxruntime\.dll|nvVFXVideoFrameGeneration\.dll)$') {
+                    $file = Join-Path $destination $Matches[1]
+                } elseif ($entry.FullName -match '^nvidia_vfx-0\.2\.0\.0\.dist-info/licenses/packaging/([A-Za-z0-9_.-]+\.(?:pdf|txt|md))$') {
+                    $file = Join-Path $licenses $Matches[1]
+                } else { continue }
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $file, $true)
+            }
+        } finally { $zip.Dispose() }
+        foreach ($dll in $required) {
+            if (!(Test-Path -LiteralPath (Join-Path $destination $dll) -PathType Leaf)) {
+                throw "The NVIDIA SDK archive is missing $dll."
+            }
+        }
+        [IO.File]::WriteAllText($marker, $expectedHash)
+        return $destination
+    } finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+    }
+}
+
+try {
+    if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -and $env:PROCESSOR_ARCHITEW6432 -ne 'AMD64') {
+        throw 'This installer requires x64 Windows.'
+    }
+    $origins = @(Get-KittyPlaysOrigins)
+    if (!$origins.Count) { throw 'Load KittyPlays in Chrome before running this installer.' }
+    $sdk = Install-MaxineRuntime
+    $hostName = 'com.kittyplays.vfg'
+    $registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
+    $fruc = $null
+    $existing = Get-Item -LiteralPath $registryPath -ErrorAction SilentlyContinue
+    if ($existing) {
+        try {
+            $old = Get-Content -LiteralPath $existing.GetValue('') -Raw | ConvertFrom-Json
+            $frucConfig = Join-Path (Split-Path -Parent $old.path) 'fruc-path.txt'
+            if (Test-Path -LiteralPath $frucConfig -PathType Leaf) { $fruc = [IO.File]::ReadAllText($frucConfig) }
+        } catch {}
+    }
+    $runtime = Join-Path $install '__HOST_HASH__'
+    New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+    $binary = Join-Path $runtime 'kittyplays-vfg.exe'
+    if (!(Test-Path -LiteralPath $binary -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash -ne '__HOST_HASH__') {
+        $payload = @'
+__HOST_PAYLOAD__
+'@
+        $inputBytes = [IO.MemoryStream]::new([Convert]::FromBase64String($payload))
+        $gzip = [IO.Compression.GZipStream]::new($inputBytes, [IO.Compression.CompressionMode]::Decompress)
+        $unpacked = [IO.MemoryStream]::new()
+        try {
+            $gzip.CopyTo($unpacked)
+            $bytes = $unpacked.ToArray()
+        } finally {
+            $gzip.Dispose()
+            $inputBytes.Dispose()
+            $unpacked.Dispose()
+        }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') }
+        finally { $sha.Dispose() }
+        if ($hash -ne '__HOST_HASH__') { throw 'The embedded Rust host failed its integrity check.' }
+        [IO.File]::WriteAllBytes($binary, $bytes)
+    }
+    [IO.File]::WriteAllText((Join-Path $runtime 'sdk-path.txt'), $sdk)
+    if ($fruc) { [IO.File]::WriteAllText((Join-Path $runtime 'fruc-path.txt'), $fruc) }
+    $manifest = Join-Path $install "$hostName.json"
+    [IO.File]::WriteAllText($manifest, (@{
+        name = $hostName
+        description = 'KittyPlays local NVIDIA frame generation'
+        path = $binary
+        type = 'stdio'
+        allowed_origins = $origins
+    } | ConvertTo-Json))
+    New-Item -Path $registryPath -Force | Out-Null
+    Set-Item -Path $registryPath -Value $manifest
+    Write-Host 'NVIDIA VFG installed. Select NVIDIA VFG in the YouTube player.'
+} catch {
+    Write-Host "Installation failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Log: $log"
+    exit 1
+} finally {
+    Stop-Transcript | Out-Null
+}
