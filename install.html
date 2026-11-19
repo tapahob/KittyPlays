@@ -107,10 +107,10 @@
       </section>
       <section hidden>
         <h2 tabindex="-1">Download the extension</h2>
-        <p>Download the KittyPlays ZIP and extract it to a folder you can keep. Chrome loads the extension files directly from that folder.</p>
-        <a class="button" href="https://github.com/tapahob/KittyPlays/archive/refs/heads/main.zip">Download ZIP from GitHub</a>
+        <p>Download and extract the Chrome extension ZIP into a folder named <code>KittyPlays-Chrome</code>. Keep that folder in place because Chrome loads the extension directly from it.</p>
+        <a class="button" href="https://tapahob.github.io/KittyPlays/KittyPlays-Chrome.zip" download>Download Chrome extension ZIP</a>
         <p id="extract-tip"></p>
-        <p>If you already have the repository on this device, continue with your existing folder.</p>
+        <p>If you already have the repository on this device, you can use its <code>chrome-extension</code> folder.</p>
       </section>
       <section hidden>
         <h2 tabindex="-1">Load KittyPlays in Chrome</h2>
@@ -121,7 +121,7 @@
         </div>
         <ol>
           <li>Paste the address into a new Chrome tab. Turn on <strong>Developer mode</strong>.</li>
-          <li>Click <strong>Load unpacked</strong> and select the <code>chrome-extension</code> folder inside KittyPlays. It contains <code>manifest.json</code>.</li>
+          <li>Click <strong>Load unpacked</strong> and select the extracted <code>KittyPlays-Chrome</code> folder. It contains <code>manifest.json</code> directly.</li>
           <li>If KittyPlays is already loaded from that folder, use <strong>Reload</strong> on its card.</li>
         </ol>
         <p><a href="https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked" target="_blank" rel="noopener">Chrome’s illustrated instructions</a></p>
@@ -133,7 +133,7 @@
         <aside id="vfg-note" hidden>
           <h3>Optional NVIDIA VFG setup</h3>
           <p>VFG uses a separate Windows x64 helper and requires a supported NVIDIA GPU. <a href="https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoFrameGeneration.html" target="_blank" rel="noopener">Check NVIDIA’s GPU requirements</a>.</p>
-          <p>If you have <code>Install-KittyPlays-NVIDIA.cmd</code>, run it after loading KittyPlays. To build the installer from this repository with Rust and the MSVC build tools, run this command from the repository root, then run the generated file in <code>target</code>.</p>
+          <p>If you have <code>Install-KittyPlays-NVIDIA.cmd</code>, run it after loading KittyPlays. To build the installer, download the <a href="https://github.com/tapahob/KittyPlays">source repository</a> and use Rust and the MSVC build tools. Run this command from the repository root, then run the generated file in <code>target</code>.</p>
           <pre><code>powershell -NoProfile -File scripts/build-vfg-installer.ps1</code></pre>
         </aside>
       </section>
@@ -222,10 +222,10 @@
     byId("vfg-note").hidden = true;
     next.disabled = currentStep === 0 && mobile;
     byId("extract-tip").textContent = ({
-      Windows: "In File Explorer, right-click the ZIP and select Extract All.",
-      macOS: "Double-click the ZIP in Finder to extract it.",
-      Linux: "Open the ZIP in your archive manager and select Extract.",
-      ChromeOS: "Open the ZIP in Files and copy the KittyPlays folder to Downloads.",
+      Windows: "In File Explorer, right-click the ZIP and select Extract All. The suggested folder name is ready to use.",
+      macOS: "Double-click the ZIP in Finder. Archive Utility creates the extension folder.",
+      Linux: "Open the ZIP in your archive manager and extract its contents into the folder.",
+      ChromeOS: "Open the ZIP in Files and copy its contents into a KittyPlays-Chrome folder in Downloads.",
     })[platform] || "Extract the ZIP with your system’s archive tool.";
     try {
       const [gpu, arch] = await Promise.all([
