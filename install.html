@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install KittyPlays</title>
+<style>
+  :root {
+    color-scheme: dark;
+    font-family: Inter, system-ui, sans-serif;
+    color: #f9edf6;
+    background: #180f1b;
+    --muted: #d4b7cf;
+    --accent: #ffc0e3;
+    --stroke: #62435e;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(ellipse at 80% 0, #46223c, transparent 52%);
+  }
+  main { max-width: 950px; padding: 48px 24px 72px; margin: auto; }
+  header, footer, .actions, .address { display: flex; align-items: center; gap: 12px; }
+  header { margin-bottom: 28px; }
+  header img { width: 52px; height: 52px; border-radius: 15px; background: #6b395a; }
+  h1 { font-size: clamp(25px, 4vw, 36px); line-height: 1.1; margin: 0 0 5px; }
+  h2 { font-size: clamp(23px, 4vw, 31px); line-height: 1.1; margin: 0 0 14px; outline: none; }
+  h3 { margin: 0 0 8px; font-size: 16px; }
+  header p, footer p { margin: 0; }
+  p, li { color: var(--muted); line-height: 1.55; }
+  a { color: var(--accent); }
+  .wizard { display: grid; grid-template-columns: 205px minmax(0, 1fr); border: 1px solid var(--stroke); border-radius: 24px; overflow: hidden; background: #29192b; box-shadow: 0 20px 56px #0d080f9e; }
+  nav { background: #211422; padding: 28px 16px; border-right: 1px solid var(--stroke); }
+  nav ol { list-style: none; padding: 0; margin: 0; }
+  nav li { padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+  nav li[aria-current="step"] { background: #4c2a46; color: #ffdeef; font-weight: 600; }
+  nav li[aria-current="step"]::before { content: "✦ "; }
+  .content { padding: clamp(22px, 5vw, 38px); }
+  .system { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 24px 0 18px; }
+  .system > div, aside { background: #221524; border: 1px solid var(--stroke); border-radius: 12px; padding: 14px; }
+  dt { color: var(--muted); font-size: 13px; }
+  dd { margin: 5px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+  aside { margin-top: 20px; }
+  aside p { margin: 8px 0; }
+  section ol { padding-inline-start: 20px; }
+  section li { margin-bottom: 8px; }
+  code { background: #221524; color: #ffdeef; border-radius: 4px; padding: 2px 4px; overflow-wrap: anywhere; }
+  pre { background: #221524; border-radius: 8px; padding: 10px; white-space: pre-wrap; }
+  pre code { padding: 0; }
+  .address { margin: 16px 0; flex-wrap: wrap; }
+  .address input { width: 195px; max-width: 100%; border: 1px solid var(--stroke); border-radius: 8px; padding: 9px 10px; background: #221524; color: inherit; font: inherit; }
+  button, a.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 14px;
+    border: 1px solid var(--stroke);
+    border-radius: 9px;
+    background: #3e2640;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .primary { background: var(--accent); color: #3a1731; border-color: transparent; }
+  button:hover, a.button:hover { outline: 1px solid var(--accent); }
+  button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  button:disabled { opacity: .5; cursor: default; outline: none; }
+  footer { justify-content: space-between; margin-top: 28px; border-top: 1px solid var(--stroke); padding-top: 20px; }
+  footer p, #copy-status { font-size: 13px; color: var(--muted); }
+  @media (max-width: 650px) {
+    main { padding: 25px 14px 42px; }
+    .wizard { grid-template-columns: minmax(0, 1fr); }
+    nav { border-right: 0; border-bottom: 1px solid var(--stroke); padding: 7px; }
+    nav ol { display: flex; flex-wrap: wrap; }
+    nav li { padding: 6px 8px; }
+    footer { flex-wrap: wrap; }
+  }
+</style>
+<main>
+  <header>
+    <img src="chrome-extension/icons/cat-60.webp" alt="" width="52" height="52">
+    <div><h1>Install KittyPlays</h1><p>Frame interpolation in the YouTube player for Chrome.</p></div>
+  </header>
+  <div class="wizard">
+    <nav aria-label="Installation progress">
+      <ol>
+        <li aria-current="step">Compatibility</li>
+        <li>Download</li>
+        <li>Load in Chrome</li>
+        <li>Try on YouTube</li>
+      </ol>
+    </nav>
+    <div class="content">
+      <section>
+        <h2 tabindex="-1">Check compatibility</h2>
+        <dl class="system">
+          <div><dt>Operating system</dt><dd id="platform">Detecting…</dd></div>
+          <div><dt>Graphics adapter</dt><dd id="gpu">Detecting…</dd></div>
+        </dl>
+        <p id="compatibility" role="status">Checking browser capabilities…</p>
+        <button id="detect" type="button">Check again</button>
+        <p>On systems with more than one GPU, Chrome may only report the adapter it is using.</p>
+      </section>
+      <section hidden>
+        <h2 tabindex="-1">Download the extension</h2>
+        <p>Download the KittyPlays ZIP and extract it to a folder you can keep. Chrome loads the extension files directly from that folder.</p>
+        <a class="button" href="https://github.com/tapahob/KittyPlays/archive/refs/heads/main.zip">Download ZIP from GitHub</a>
+        <p id="extract-tip"></p>
+        <p>If you already have the repository on this device, continue with your existing folder.</p>
+      </section>
+      <section hidden>
+        <h2 tabindex="-1">Load KittyPlays in Chrome</h2>
+        <div class="address">
+          <input id="extensions-address" type="text" value="chrome://extensions" readonly aria-label="Chrome extensions address">
+          <button id="copy" type="button">Copy address</button>
+          <span id="copy-status" role="status"></span>
+        </div>
+        <ol>
+          <li>Paste the address into a new Chrome tab. Turn on <strong>Developer mode</strong>.</li>
+          <li>Click <strong>Load unpacked</strong> and select the <code>chrome-extension</code> folder inside KittyPlays. It contains <code>manifest.json</code>.</li>
+          <li>If KittyPlays is already loaded from that folder, use <strong>Reload</strong> on its card.</li>
+        </ol>
+        <p><a href="https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked" target="_blank" rel="noopener">Chrome’s illustrated instructions</a></p>
+      </section>
+      <section hidden>
+        <h2 tabindex="-1">Try it on YouTube</h2>
+        <p>Open a video or reload an existing YouTube tab. The KittyPlays controls appear in the player next to the playback buttons. Choose a mode and a frame-rate target. <strong>Info</strong> shows the source and output FPS.</p>
+        <div class="actions"><a class="button" href="https://www.youtube.com/" target="_blank" rel="noopener">Open YouTube</a></div>
+        <aside id="vfg-note" hidden>
+          <h3>Optional NVIDIA VFG setup</h3>
+          <p>VFG uses a separate Windows x64 helper and requires a supported NVIDIA GPU. <a href="https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoFrameGeneration.html" target="_blank" rel="noopener">Check NVIDIA’s GPU requirements</a>.</p>
+          <p>If you have <code>Install-KittyPlays-NVIDIA.cmd</code>, run it after loading KittyPlays. To build the installer from this repository with Rust and the MSVC build tools, run this command from the repository root, then run the generated file in <code>target</code>.</p>
+          <pre><code>powershell -NoProfile -File scripts/build-vfg-installer.ps1</code></pre>
+        </aside>
+      </section>
+      <footer>
+        <p id="progress" aria-live="polite">Step 1 of 4</p>
+        <div class="actions">
+          <button id="back" type="button" disabled>Back</button>
+          <button id="next" class="primary" type="button">Continue</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+</main>
+<script>
+  const byId = id => document.getElementById(id);
+  const sections = [...document.querySelectorAll(".content > section")];
+  const stepLabels = [...document.querySelectorAll("nav li")];
+  const next = byId("next");
+  const back = byId("back");
+  let currentStep = 0;
+  let mobile = false;
+
+  function showStep(index) {
+    currentStep = index;
+    sections.forEach((section, i) => {
+      section.hidden = i !== index;
+      if (i === index) stepLabels[i].setAttribute("aria-current", "step");
+      else stepLabels[i].removeAttribute("aria-current");
+    });
+    back.disabled = index === 0;
+    next.hidden = index === sections.length - 1;
+    next.disabled = index === 0 && mobile;
+    byId("progress").textContent = "Step " + (index + 1) + " of " + sections.length;
+    sections[index].querySelector("h2").focus();
+  }
+  back.addEventListener("click", () => showStep(currentStep - 1));
+  next.addEventListener("click", () => showStep(currentStep + 1));
+
+  function detectPlatform() {
+    const source = [navigator.userAgentData?.platform, navigator.userAgent, navigator.platform].join(" ");
+    if (/Android/i.test(source)) return "Android";
+    if (/iPhone|iPad|iPod/i.test(source) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "iOS / iPadOS";
+    if (/CrOS|Chrome OS/i.test(source)) return "ChromeOS";
+    if (/Windows|Win32/i.test(source)) return "Windows";
+    if (/Mac/i.test(source)) return "macOS";
+    if (/Linux|X11/i.test(source)) return "Linux";
+    return "Unknown";
+  }
+
+  async function detectGraphics() {
+    const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+    let gl;
+    let renderer;
+    try {
+      gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
+      const debug = gl?.getExtension("WEBGL_debug_renderer_info");
+      if (debug) renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+    } catch {
+      // Hardware details may be unavailable when browser privacy settings mask them.
+    } finally {
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    }
+    const info = adapter?.info;
+    const adapterLabel = info?.description || ({ "0x10de": "NVIDIA", "0x1002": "AMD", "0x8086": "Intel" }[info?.vendor?.toLowerCase()]) || info?.vendor;
+    const display = renderer?.replace(/^ANGLE \(([^,]+), (.*), [^,]+\)$/, "$2")
+      .replace(/\s+Direct3D\d.*$/i, "");
+    const software = /SwiftShader|llvmpipe|software rasterizer/i.test(renderer || "");
+    return {
+      label: display && !software ? display : adapterLabel || display || "Not reported by Chrome",
+      nvidia: /\bnvidia\b|^0x10de$/i.test(info?.vendor || "") ||
+        /\bnvidia\b/i.test([info?.description, renderer].join(" ")),
+      webgpu: Boolean(adapter && !info?.isFallbackAdapter),
+      webgl: Boolean(gl && !software),
+    };
+  }
+
+  async function detect() {
+    const retry = byId("detect");
+    retry.disabled = true;
+    const platform = detectPlatform();
+    mobile = platform === "Android" || platform === "iOS / iPadOS";
+    byId("platform").textContent = platform;
+    byId("gpu").textContent = "Detecting…";
+    byId("compatibility").textContent = "Checking browser capabilities…";
+    byId("vfg-note").hidden = true;
+    next.disabled = currentStep === 0 && mobile;
+    byId("extract-tip").textContent = ({
+      Windows: "In File Explorer, right-click the ZIP and select Extract All.",
+      macOS: "Double-click the ZIP in Finder to extract it.",
+      Linux: "Open the ZIP in your archive manager and select Extract.",
+      ChromeOS: "Open the ZIP in Files and copy the KittyPlays folder to Downloads.",
+    })[platform] || "Extract the ZIP with your system’s archive tool.";
+    try {
+      const [gpu, arch] = await Promise.all([
+        detectGraphics(),
+        navigator.userAgentData?.getHighEntropyValues(["architecture", "bitness"]).catch(() => ({})),
+      ]);
+      byId("gpu").textContent = gpu.label;
+      const chrome = /Chrome\//.test(navigator.userAgent) &&
+        !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
+      const knownNonX64 = arch?.architecture && (arch.architecture !== "x86" || arch.bitness === "32");
+      byId("vfg-note").hidden = !(platform === "Windows" && gpu.nvidia && !knownNonX64);
+      byId("compatibility").textContent = mobile
+        ? "Open this wizard in desktop Chrome to install KittyPlays."
+        : !chrome ? "Continue in desktop Google Chrome for the installation steps."
+        : gpu.webgpu ? "WebGPU is available for AI and Hybrid modes."
+        : gpu.webgl ? "WebGL 2 is available for Optical Flow. AI and Hybrid need WebGPU."
+        : "GPU acceleration could not be confirmed. Installation can continue. Check Chrome’s graphics acceleration if interpolation modes are unavailable.";
+    } catch {
+      byId("gpu").textContent = "Not reported by Chrome";
+      byId("compatibility").textContent = mobile
+        ? "Open this wizard in desktop Chrome to install KittyPlays."
+        : "Automatic graphics detection is unavailable. You can still continue with installation.";
+    } finally {
+      retry.disabled = false;
+    }
+  }
+  byId("detect").addEventListener("click", detect);
+  byId("copy").addEventListener("click", async () => {
+    const field = byId("extensions-address");
+    const status = byId("copy-status");
+    try {
+      await navigator.clipboard.writeText(field.value);
+      status.textContent = "Address copied.";
+    } catch {
+      field.focus();
+      field.select();
+      status.textContent = "Address selected. Press Ctrl+C or Command+C.";
+    }
+  });
+  detect();
+</script>
+</html>
