@@ -1,8 +1,11 @@
 (() => {
-  let enabled = true, preferred = "ai", selected, active;
+  let interpolate = true, preferred = "ai", selected, active;
   let frameLimit = 120;
   let showInfo = true;
   let fidelityFxMultiplier = 2;
+  let initialized = false;
+  let fidelityFxLabel;
+  const availability = {};
   function save(setting) {
     if (chrome.runtime?.id) chrome.storage.local.set(setting).catch(() => {});
   }
@@ -22,51 +25,26 @@
   modeOptions.setAttribute("aria-label", "Playback mode");
   modeMenu.append(modeTrigger, modeOptions);
 
-  const platform = navigator.userAgentData?.platform || navigator.platform;
-  const isWindows = /^win/i.test(platform);
-  const isMac = /^mac/i.test(platform);
-  async function detectGraphics() {
-    const isAmd = name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "");
-    const isNvidia = name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "");
-    const adapterOptions = isWindows ? {powerPreference: "high-performance"} : undefined;
-    const adapter = isMac ? null : await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
-    const info = adapter?.info;
-    const names = info && !info.isFallbackAdapter ? [info.vendor, info.description] : [];
-
-    // WebGL can expose the GPU model even when WebGPU only identifies its vendor.
-    const gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
-    if (gl) {
-      try {
-        const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-        if (debugInfo) names.push(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
-          gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
-      } finally {
-        gl.getExtension("WEBGL_lose_context")?.loseContext();
-      }
-    }
-    return {
-      amd: !isMac && names.some(isAmd),
-      nvidia: !isMac && names.some(isNvidia),
-      appleM1: isMac && names.some(name => /\bApple M1\b(?!\s+(?:Pro|Max|Ultra)\b)/i.test(name)),
-    };
+  const isWindows = /^win/i.test(kittyPlaysPlatform);
+  const modeButtons = new Map();
+  const supportsMode = mode => mode !== "fidelityfx" || Boolean(fidelityFxLabel);
+  const isModeAvailable = mode => supportsMode(mode) && availability[kittyPlaysModeKey(mode)] !== false;
+  function updateModeVisibility() {
+    for (const [mode, button] of modeButtons)
+      button.hidden = mode !== "original" && !isModeAvailable(mode);
   }
 
   function select(mode) {
+    const label = modeButtons.get(mode)?.textContent ?? "Mode";
+    if (selected === mode && modeTrigger.textContent === label) return;
     selected = mode;
-    let label = "Mode";
-    for (const button of modeOptions.children) {
-      const current = button.value === mode;
-      button.setAttribute("aria-pressed", String(current));
-      if (current) label = button.textContent;
-    }
+    for (const [value, button] of modeButtons)
+      button.setAttribute("aria-pressed", String(value === mode));
     modeTrigger.textContent = label;
     modeTrigger.setAttribute("aria-label", "Playback mode, " + label);
   }
   for (const [value, label, title] of [
-    ["ai", "AI", "Neural frame interpolation"],
-    ["flow", "Optical Flow", "Optical flow interpolation"],
-    ["hybrid", "Hybrid", "Neural interpolation with local optical flow correction"],
-    ["fidelityfx", "AMD FidelityFX", "Double the source frame rate with AMD FidelityFX, up to the selected FPS"],
+    ...kittyPlaysModes,
     ["original", "Original", "Play the original video without interpolation"],
   ]) {
     const button = document.createElement("button");
@@ -83,15 +61,16 @@
       modeMenu.open = false;
       modeTrigger.focus();
       if (selected === value) return;
-      enabled = value !== "original";
-      if (enabled) {
+      interpolate = value !== "original";
+      if (interpolate) {
         preferred = value;
-        save({enabled, preferred});
-      } else save({enabled});
+        save({enabled: interpolate, preferred});
+      } else save({enabled: interpolate});
       active?.dispose();
       active = undefined;
       sync();
     });
+    modeButtons.set(value, button);
     modeOptions.append(button);
   }
   select(preferred);
@@ -182,7 +161,7 @@
   sparkles.className = "kittyplays-sparkles";
   sparkles.setAttribute("aria-hidden", "true");
   controls.append(sparkles);
-  function attach(video, host) {
+  function attach(video, host, requested) {
     let canvas = document.createElement("canvas");
     const hud = document.createElement("span");
     canvas.className = "kittyplays-surface";
@@ -192,9 +171,9 @@
     video.after(canvas);
     host.append(hud);
     let renderer, raf, callback, previous, latest, sourceFps, issue;
-    const requested = preferred;
     let mode = requested === "fidelityfx" ? "Loading FidelityFX (WebGPU)" : "Загрузка нейросети";
     let disposed = false, fallback = false;
+    let fallbackAvailable;
     let output = 0, started = performance.now(), next = 0;
     let browserMs = 0;
     const drawIntervals = [];
@@ -352,6 +331,12 @@
       if (disposed || fallback || !contextAlive()) return;
       fallback = true;
       if (error) console.warn("KittyPlays: " + requested + " renderer unavailable", error);
+      fallbackAvailable = isModeAvailable("flow");
+      if (!fallbackAvailable) {
+        dispose();
+        select("original");
+        return;
+      }
       select("flow");
       stop();
       renderer?.dispose();
@@ -365,9 +350,9 @@
       try { renderer = kittyRenderer(canvas, failCapture, isWindows); start(); }
       catch { select(undefined); fail("Ускорение WebGL 2 недоступно"); }
     }
-    select(preferred);
+    select(requested);
     if (requested === "fidelityfx") {
-      const button = modeOptions.querySelector('[value="fidelityfx"]');
+      const button = modeButtons.get("fidelityfx");
       const title = button.title;
       function fallbackFromFidelityFx(error) {
         if (disposed || !contextAlive()) return;
@@ -381,14 +366,28 @@
         button.title = title;
         reset(); start();
       }).catch(fallbackFromFidelityFx);
-    } else if (preferred === "flow") startFlow();
-    else kittyNeuralRenderer(canvas,startFlow,preferred === "hybrid").then(neural => {
+    } else if (requested === "flow") startFlow();
+    else kittyNeuralRenderer(canvas,startFlow,requested === "hybrid").then(neural => {
       if (disposed || fallback || !contextAlive()) { neural.dispose(); return; }
       renderer = neural;
-      mode = preferred === "hybrid" ? "Hybrid" : "Нейросеть RIFE-student";
+      mode = requested === "hybrid" ? "Hybrid" : "Нейросеть RIFE-student";
       reset(); start();
     }).catch(startFlow);
-    return {video, setInfoVisible(visible) {
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      events.abort();
+      size.disconnect();
+      style.disconnect();
+      stop();
+      renderer?.dispose();
+      canvas.remove();
+      hud.remove();
+    }
+    return {video, requested, dispose, get needsRestart() {
+      return fallback && fallbackAvailable !== isModeAvailable("flow");
+    }, setInfoVisible(visible) {
+      if (disposed) return;
       lastVideoSample = undefined;
       hud.hidden = !visible;
       drawIntervals.length = 0;
@@ -398,15 +397,6 @@
         started = performance.now();
         output = 0;
       }
-    }, dispose() {
-      disposed = true;
-      events.abort();
-      size.disconnect();
-      style.disconnect();
-      stop();
-      renderer?.dispose();
-      canvas.remove();
-      hud.remove();
     }};
   }
   function contextAlive() {
@@ -422,46 +412,56 @@
     if (!contextAlive()) return;
     const host = document.querySelector("#movie_player");
     const watch = location.pathname === "/watch";
-    const bar = watch && host?.querySelector(".ytp-right-controls");
+    const extensionEnabled = availability.extensionEnabled !== false;
+    const bar = extensionEnabled && watch && host?.querySelector(".ytp-right-controls");
     if (bar && toolbar.parentElement !== bar) bar.prepend(toolbar);
     else if (!bar && toolbar.isConnected) toolbar.remove();
-    const video = enabled && watch && host?.querySelector("video.html5-main-video");
-    if (active && active.video !== video) { active.dispose(); active = undefined; }
-    if (!video) select(enabled ? undefined : "original");
-    if (video && !active) active = attach(video, host);
+    const requested = extensionEnabled && interpolate && isModeAvailable(preferred) ? preferred : "original";
+    const video = requested !== "original" && watch && host?.querySelector("video.html5-main-video");
+    if (active && (active.video !== video || active.requested !== requested || active.needsRestart)) {
+      active.dispose();
+      active = undefined;
+    }
+    if (!video) select(requested === "original" ? "original" : undefined);
+    else if (!active) active = attach(video, host, requested);
   }
   // YouTube reuses the document and may replace the video after navigation.
   let scheduled = false;
   const observer = new MutationObserver(() => {
-    if (scheduled || (controls.isConnected && active?.video.isConnected && location.pathname === "/watch")) return;
+    if (availability.extensionEnabled === false || scheduled ||
+      (controls.isConnected && active?.video.isConnected && location.pathname === "/watch")) return;
     scheduled = true;
     requestAnimationFrame(() => { scheduled = false; sync(); });
   });
-  chrome.runtime.onMessage.addListener(message => {
-    if (message.type === "kittyplays-toggle") {
-      enabled = !enabled;
-      save({enabled});
-      sync();
-    }
-  });
+  function onAvailabilityChange(changes) {
+    const keys = kittyPlaysAvailabilityKeys.filter(key => Object.hasOwn(changes, key));
+    if (!keys.length) return;
+    for (const key of keys) availability[key] = changes[key].newValue;
+    if (!initialized) return;
+    updateModeVisibility();
+    sync();
+  }
+  chrome.storage.local.onChanged.addListener(onAvailabilityChange);
   Promise.all([
-    chrome.storage.local.get(["enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
-    detectGraphics().catch(() => ({})),
-  ]).then(([saved, {amd, nvidia, appleM1}]) => {
-    if (typeof saved.enabled === "boolean") enabled = saved.enabled;
+    chrome.storage.local.get([...kittyPlaysAvailabilityKeys, "enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
+    detectKittyPlaysGraphics().catch(() => ({})),
+  ]).then(([saved, graphics]) => {
+    const {amd, nvidia, appleM1} = graphics;
+    fidelityFxLabel = graphics.fidelityFxLabel;
+    if (fidelityFxLabel) modeButtons.get("fidelityfx").textContent = fidelityFxLabel;
+    if (nvidia) {
+      fidelityFxMultiplier = 8;
+      modeButtons.get("fidelityfx").title = "Generate frames in Chrome at source resolution up to the selected FPS";
+    }
+    for (const key of kittyPlaysAvailabilityKeys) {
+      if (!Object.hasOwn(availability, key)) availability[key] = saved[key];
+    }
+    updateModeVisibility();
+    if (typeof saved.enabled === "boolean") interpolate = saved.enabled;
     if (amd && !isWindows) preferred = "fidelityfx";
     if (appleM1) preferred = "flow";
-    for (const button of modeOptions.children) {
-      if (button.value === "fidelityfx") {
-        button.hidden = !amd && !nvidia;
-        if (nvidia) {
-          fidelityFxMultiplier = 8;
-          button.textContent = "FidelityFX (WebGPU)";
-          button.title = "Generate frames in Chrome at source resolution up to the selected FPS";
-        }
-      }
-      if (!button.hidden && button.value === saved.preferred && button.value !== "original") preferred = button.value;
-    }
+    if (saved.preferred !== "original" && modeButtons.has(saved.preferred) && supportsMode(saved.preferred))
+      preferred = saved.preferred;
     if (saved.preferred === "vfg" || saved.preferred === "fruc") {
       if (nvidia) preferred = "fidelityfx";
       save({preferred});
@@ -471,6 +471,7 @@
     infoButton.setAttribute("aria-pressed", String(showInfo));
   }).catch(() => {}).finally(() => {
     if (!contextAlive()) return;
+    initialized = true;
     observer.observe(document.documentElement, {childList: true, subtree: true});
     document.addEventListener("yt-navigate-finish", sync);
     sync();

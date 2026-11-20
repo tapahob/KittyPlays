@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>KittyPlays settings</title>
+  <link rel="stylesheet" href="popup.css">
+  <script defer src="modes.js"></script>
+  <script defer src="popup.js"></script>
+</head>
+<body>
+  <header>
+    <img src="icons/kittyplays-128.png" width="88" height="88" alt="">
+    <h1>KittyPlays</h1>
+  </header>
+  <section aria-labelledby="modes-heading">
+    <h2 id="modes-heading">Modes in the YouTube player</h2>
+    <div id="modes" class="settings-panel"></div>
+  </section>
+  <footer class="settings-panel">
+    <label class="setting">
+      <span>Enable KittyPlays</span>
+      <input id="enabled" type="checkbox" role="switch" disabled>
+    </label>
+  </footer>
+  <p id="status" role="status" hidden></p>
+</body>
+</html>

@@ -1,7 +1,3 @@
-chrome.action.onClicked.addListener(tab => {
-  chrome.tabs.sendMessage(tab.id, {type: "kittyplays-toggle"}).catch(() => {});
-});
-
 // Read the packaged files from the extension origin. Chrome extension
 // messages use JSON serialization, so encode the binary only during setup.
 async function loadModel() {

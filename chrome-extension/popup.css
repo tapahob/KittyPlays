@@ -1,0 +1,83 @@
+:root {
+  --switch-width: 34px;
+  color-scheme: dark;
+  color: #ffe8f4;
+  background: #261220 radial-gradient(ellipse 170px 160px at 50% 38px, #582641, transparent);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+body {
+  box-sizing: border-box;
+  width: 300px;
+  margin: 0;
+  padding: 16px;
+}
+header {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-block-end: 18px;
+}
+header img {
+  display: block;
+  filter: drop-shadow(0 4px 8px #190a16a6);
+}
+h1 { margin: 0; font-size: 21px; line-height: 1.2; }
+h2 {
+  margin: 0 0 6px 4px;
+  color: #dfb6cd;
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-panel {
+  padding: 4px;
+  border: 1px solid #713653;
+  border-radius: 12px;
+  background: #361829;
+}
+.setting {
+  display: grid;
+  grid-template-columns: 1fr var(--switch-width);
+  align-items: center;
+  gap: 12px;
+  min-block-size: 24px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.setting[hidden] { display: none; }
+.setting:hover { background: #51243e; }
+footer.settings-panel {
+  margin-block-start: 10px;
+  background: #462037;
+  font-weight: 600;
+}
+input[role="switch"] {
+  appearance: none;
+  box-sizing: border-box;
+  display: grid;
+  align-items: center;
+  width: var(--switch-width);
+  height: 20px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid #b6819d;
+  border-radius: 20px;
+  background: #4f3445;
+  cursor: inherit;
+}
+input[role="switch"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffe8f4;
+}
+input[role="switch"]:checked { border-color: #ffb6d6; background: #ffb6d6; }
+input[role="switch"]:checked::before { justify-self: end; background: #44152f; }
+input[role="switch"]:focus-visible { outline: 2px solid #fff0fa; outline-offset: 3px; }
+input[role="switch"]:disabled { opacity: .5; cursor: default; }
+#status { margin: 8px; color: #ffb6d6; font-size: 12px; }
+@media (forced-colors: active) {
+  input[role="switch"] { appearance: auto; }
+  input[role="switch"]::before { content: none; }
+}

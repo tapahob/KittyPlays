@@ -42,7 +42,7 @@ On an Apple Silicon Mac, load the `chrome-extension` folder from `chrome://exten
 
 ### Extension components
 
-[The Manifest V3 entry point](chrome-extension/manifest.json) loads the content scripts on YouTube and registers [the service worker](chrome-extension/action.js). The worker forwards toolbar clicks to the active tab and serves bundled model weights and menu icons on request. Frame processing runs in the YouTube tab.
+[The Manifest V3 entry point](chrome-extension/manifest.json) opens the KittyPlays settings popup from the Chrome toolbar, loads the content scripts on YouTube, and registers [the service worker](chrome-extension/action.js). The worker serves bundled model weights and menu icons on request. Frame processing runs in the YouTube tab.
 
 [The player integration](chrome-extension/player.js) adds mode and FPS controls to YouTube, manages the renderer as the active video changes, and positions an output canvas over the source video. It saves the selected mode, FPS target, and Info visibility in Chrome's local extension storage.
 
@@ -53,9 +53,10 @@ title: KittyPlays runtime architecture
 flowchart LR
     subgraph Extension["Chrome extension"]
         direction TB
-        Toolbar["Toolbar button"] --> Worker["Service worker · action.js"]
-        Assets["Packaged weights and icons"] --> Worker
+        Toolbar["Toolbar button"] --> Popup["Settings popup"]
+        Assets["Packaged weights and icons"] --> Worker["Service worker · action.js"]
         Storage[("Chrome local storage")]
+        Popup -.->|"Enable extension or show modes"| Storage
     end
 
     subgraph Tab["YouTube tab"]
@@ -68,14 +69,14 @@ flowchart LR
         Player -.->|"FPS and timing"| HUD["Info overlay"]
     end
 
-    Worker -.->|"Toggle interpolation or return assets"| Player
+    Worker -.->|"Return assets"| Player
     Player -.->|"Read and save preferences"| Storage
 
     classDef host fill:#222838,stroke:#66738c,color:#f2f5fb
     classDef control fill:#412343,stroke:#c576ae,color:#fff3fb
     classDef frame fill:#153842,stroke:#65b9c7,color:#edfcff
     class Toolbar,Worker,Assets,Storage host
-    class Controls,Player,HUD control
+    class Popup,Controls,Player,HUD control
     class Video,Renderer,Canvas frame
 ```
 
@@ -125,11 +126,12 @@ Seeking, pausing, and buffering reset the renderer's frame history so it can res
 | FidelityFX | [The WebGPU renderer](chrome-extension/fidelityfx.js) ports FidelityFX SDK 1.1.4 Optical Flow and Frame Interpolation for video. It estimates motion from the source frames and uses it to generate intermediate frames. |
 | Original | YouTube presents the source video directly. |
 
-If AI, Hybrid, or FidelityFX cannot run, the player tries Optical Flow. If WebGL 2 also fails to initialize, playback continues with the original video.
+If AI, Hybrid, or FidelityFX cannot run, the player tries Optical Flow when it is enabled. Playback continues with the original video if Optical Flow is disabled or WebGL 2 fails to initialize.
 
 ## Features
 
 - Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. On Windows and Linux, FidelityFX is also available when Chrome detects a Radeon or NVIDIA adapter. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
+- Click the KittyPlays icon in Chrome to choose which modes appear in the YouTube player or turn KittyPlays off across all tabs. Original stays in the player menu whenever KittyPlays is on.
 - **Info** shows source and output FPS, frames dropped by Chrome, and the 95th-percentile interval between canvas updates. GPU use, video memory, processing resolution, and skipped inputs due to a busy renderer appear where available. Chrome remembers the selected mode, FPS target, and overlay visibility.
 
 ## Tech stack
