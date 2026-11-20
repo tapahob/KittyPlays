@@ -3,25 +3,55 @@
 <head>
   <meta charset="utf-8">
   <title>KittyPlays settings</title>
+  <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="popup.css">
   <script defer src="modes.js"></script>
+  <script defer src="ui-icons.js"></script>
   <script defer src="popup.js"></script>
 </head>
-<body>
+<body class="kittyplays-glass">
+  <button class="about-button" type="button" popovertarget="about" aria-label="About KittyPlays" title="About KittyPlays" data-icon="info"></button>
+  <aside id="about" class="kittyplays-glass" popover>
+    <strong>KittyPlays for YouTube</strong>
+    <span id="version"></span>
+  </aside>
   <header>
-    <img src="icons/kittyplays-128.png" width="88" height="88" alt="">
-    <h1>KittyPlays</h1>
+    <div class="brand-scene" aria-hidden="true">
+      <span class="kittyplays-ribbon"></span>
+      <span class="kittyplays-star"></span><span class="kittyplays-star"></span>
+      <span class="kittyplays-star"></span><span class="kittyplays-star"></span>
+      <span class="kittyplays-star"></span>
+    </div>
+    <img class="brand-icon" src="icons/kittyplays-128.png" width="120" height="120" alt="">
+    <h1><span>KittyPlays</span><span class="brand-paw" data-icon="paw"></span></h1>
   </header>
   <section aria-labelledby="modes-heading">
-    <h2 id="modes-heading">Modes in the YouTube player</h2>
+    <h2 id="modes-heading"><span data-icon="original"></span>Modes in the YouTube player</h2>
     <div id="modes" class="settings-panel"></div>
   </section>
-  <footer class="settings-panel">
+  <footer class="settings-panel kittyplays-gloss">
     <label class="setting">
+      <span data-icon="paw"></span>
       <span>Enable KittyPlays</span>
       <input id="enabled" type="checkbox" role="switch" disabled>
     </label>
+    <label class="setting">
+      <span data-icon="info"></span>
+      <span>Frame generation stats</span>
+      <input id="show-info" type="checkbox" role="switch" disabled>
+    </label>
   </footer>
   <p id="status" role="status" hidden></p>
+  <div class="footer-scene">
+    <p class="author-credit">by Yuna Maxwell</p>
+    <span class="kittyplays-ribbon"></span>
+    <span class="kittyplays-star"></span><span class="kittyplays-star"></span>
+    <span class="kittyplays-star"></span><span class="kittyplays-star"></span>
+    <svg class="peeking-cat" viewBox="0 0 160 65" fill="none" aria-hidden="true">
+      <path class="cat-head" d="M25 59Q26 22 39 13Q46 8 67 27Q82 23 96 27Q114 7 122 12Q133 19 135 59" />
+      <path class="cat-paws" d="M10 57C11 45 42 41 45 55Q48 65 36 65H19Q8 65 10 57ZM112 57C113 45 144 41 147 55Q150 65 138 65H121Q110 65 112 57Z" />
+      <path class="paw-lines" d="M21 56Q24 59 24 65M32 55Q35 59 35 65M123 56Q126 59 126 65M134 55Q137 59 137 65" />
+    </svg>
+  </div>
 </body>
 </html>

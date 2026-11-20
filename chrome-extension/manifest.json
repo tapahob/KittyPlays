@@ -9,8 +9,8 @@
   "permissions": ["storage"],
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],
-    "js": ["motion.js", "renderer.js", "neural/rt.js", "neural.js", "fidelityfx-shaders.js", "fidelityfx.js", "modes.js", "player.js"],
-    "css": ["player.css"],
+    "js": ["motion.js", "renderer.js", "neural/rt.js", "neural.js", "fidelityfx-shaders.js", "fidelityfx.js", "modes.js", "ui-icons.js", "player.js"],
+    "css": ["theme.css", "player.css"],
     "run_at": "document_idle"
   }]
 }

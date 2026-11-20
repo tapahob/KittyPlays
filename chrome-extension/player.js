@@ -2,7 +2,6 @@
   let interpolate = true, preferred = "ai", selected, active;
   let frameLimit = 120;
   let showInfo = true;
-  let fidelityFxMultiplier = 2;
   let initialized = false;
   let fidelityFxLabel;
   const availability = {};
@@ -10,7 +9,7 @@
     if (chrome.runtime?.id) chrome.storage.local.set(setting).catch(() => {});
   }
   const toolbar = document.createElement("div");
-  toolbar.className = "kittyplays-toolbar";
+  toolbar.className = "kittyplays-toolbar kittyplays-glass";
   const controls = document.createElement("div");
   controls.className = "kittyplays-modes";
   controls.setAttribute("role", "group");
@@ -18,6 +17,7 @@
   const modeMenu = document.createElement("details");
   modeMenu.className = "kittyplays-limit kittyplays-mode-menu";
   const modeTrigger = document.createElement("summary");
+  modeTrigger.className = "kittyplays-gloss";
   modeTrigger.title = "Playback mode";
   const modeOptions = document.createElement("div");
   modeOptions.className = "kittyplays-limit-options";
@@ -40,7 +40,7 @@
     selected = mode;
     for (const [value, button] of modeButtons)
       button.setAttribute("aria-pressed", String(value === mode));
-    modeTrigger.textContent = label;
+    modeTrigger.replaceChildren(kittyPlaysIcon(mode ?? "original"), label);
     modeTrigger.setAttribute("aria-label", "Playback mode, " + label);
   }
   for (const [value, label, title] of [
@@ -51,7 +51,7 @@
     button.type = "button";
     button.className = "kittyplays-mode";
     button.value = value;
-    button.textContent = label;
+    button.append(kittyPlaysIcon(value), label);
     button.title = title;
     button.hidden = value === "fidelityfx";
     button.setAttribute("aria-pressed", "false");
@@ -95,7 +95,7 @@
     frameLimit = rate === "Max" ? 0 : Number(rate);
     trigger.replaceChildren(createCatIcon(rate), rate);
     trigger.setAttribute("aria-label", "Frame rate limit, " + rate);
-    for (const button of choices.children)
+    for (const button of choices.querySelectorAll("button"))
       button.setAttribute("aria-pressed", String(button.value === rate));
   }
   const icons = {};
@@ -141,13 +141,25 @@
   }
   const infoButton = document.createElement("button");
   infoButton.type = "button";
-  infoButton.textContent = "Info";
+  const infoState = document.createElement("span");
+  infoState.className = "kittyplays-info-state";
+  infoState.setAttribute("aria-hidden", "true");
+  infoButton.append(kittyPlaysIcon("info"), infoState);
   infoButton.title = "Toggle playback statistics";
-  infoButton.setAttribute("aria-pressed", String(showInfo));
-  infoButton.addEventListener("click", () => {
-    showInfo = !showInfo;
+  infoButton.setAttribute("aria-label", "Playback statistics");
+  function updateInfoButton() {
     infoButton.setAttribute("aria-pressed", String(showInfo));
+    infoState.textContent = showInfo ? "ON" : "OFF";
+  }
+  updateInfoButton();
+  function setShowInfo(visible) {
+    if (showInfo === visible) return;
+    showInfo = visible;
+    updateInfoButton();
     active?.setInfoVisible(showInfo);
+  }
+  infoButton.addEventListener("click", () => {
+    setShowInfo(!showInfo);
     save({showInfo});
   });
   for (const event of ["click", "keydown", "keyup"])
@@ -157,21 +169,57 @@
   infoBar.append(infoButton);
   toolbar.append(controls, infoBar);
   controls.append(modeMenu, limitMenu);
-  const sparkles = document.createElement("span");
-  sparkles.className = "kittyplays-sparkles";
-  sparkles.setAttribute("aria-hidden", "true");
-  controls.append(sparkles);
+  const sparkle = document.createElement("span");
+  sparkle.className = "kittyplays-star kittyplays-toolbar-star";
+  sparkle.setAttribute("aria-hidden", "true");
+  toolbar.append(sparkle);
+  for (const menu of [modeOptions, choices]) {
+    const menuStar = sparkle.cloneNode();
+    menuStar.className = "kittyplays-star kittyplays-menu-star";
+    menu.append(menuStar);
+  }
   function attach(video, host, requested) {
     let canvas = document.createElement("canvas");
-    const hud = document.createElement("span");
+    const hud = document.createElement("div");
     canvas.className = "kittyplays-surface";
     canvas.hidden = true;
-    hud.className = "kittyplays-fps";
+    hud.className = "kittyplays-fps kittyplays-glass";
     hud.hidden = !showInfo;
+    hud.setAttribute("role", "group");
+    hud.setAttribute("aria-label", "KittyPlays playback statistics");
+    const ribbon = document.createElement("span");
+    ribbon.className = "kittyplays-ribbon";
+    ribbon.setAttribute("aria-hidden", "true");
+    const watermark = kittyPlaysIcon("paw");
+    watermark.classList.add("kittyplays-fps-paw");
+    const statsStar = sparkle.cloneNode();
+    statsStar.className = "kittyplays-star kittyplays-fps-star";
+    const statsMote = statsStar.cloneNode();
+    statsMote.classList.add("kittyplays-fps-mote");
+    hud.append(ribbon, watermark, statsStar, statsMote);
+    const metrics = new Map();
+    for (const [key, icon] of [
+      ["fps", requested], ["gpu", "fidelityfx"], ["memory", "memory"], ["thread", "flow"],
+      ["resolution", "screen"], ["interval", "clock"], ["busy", "warning"], ["drops", "original"],
+      ["error", "warning"],
+    ]) {
+      const row = document.createElement("div");
+      row.className = "kittyplays-fps-row";
+      row.hidden = true;
+      const text = document.createElement("span");
+      row.append(kittyPlaysIcon(icon), text);
+      hud.append(row);
+      metrics.set(key, {row, text});
+    }
+    const headline = document.createTextNode("");
+    const sourceRate = document.createTextNode("");
+    const outputRate = document.createElement("strong");
+    metrics.get("fps").text.append(headline, sourceRate, " / ", outputRate);
     video.after(canvas);
     host.append(hud);
     let renderer, raf, callback, previous, latest, sourceFps, issue;
-    let mode = requested === "fidelityfx" ? "Loading FidelityFX (WebGPU)" : "Загрузка нейросети";
+    const modeName = modeButtons.get(requested).textContent;
+    let mode = "Loading " + modeName;
     let disposed = false, fallback = false;
     let fallbackAvailable;
     let output = 0, started = performance.now(), next = 0;
@@ -180,6 +228,11 @@
     let lastDraw;
     let lastVideoSample;
     const events = new AbortController();
+    function setMetric(key, content) {
+      const {row, text} = metrics.get(key);
+      if (text.textContent !== content) text.textContent = content;
+      row.hidden = !content;
+    }
     function updateHud(fps, elapsed) {
       const stats = renderer?.resources?.(elapsed, showInfo);
       const browserLoad = elapsed > 0 ? Math.min(100, 100 * (browserMs + (stats?.browserMs || 0)) / elapsed) : null;
@@ -197,22 +250,27 @@
         }
       }
       lastVideoSample = quality;
-      const lines = [mode + " · FPS " + (sourceFps ? Math.round(sourceFps) : "—") + " / " + fps];
+      const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
+      metrics.get("fps").row.hidden = false;
+      setText(headline, mode + " · FPS ");
+      setText(sourceRate, sourceFps ? String(Math.round(sourceFps)) : "—");
+      setText(outputRate, String(fps));
       const load = (label, value) => Number.isFinite(value) ? label + " ≈" + Math.round(value) + "%" : "";
-      const memory = (label, bytes) => Number.isFinite(bytes) ? label + " ≈" + Math.round(bytes / 1048576) + " МиБ" : "";
-      const add = (...items) => { if (items.some(Boolean)) lines.push(items.filter(Boolean).join(" · ")); };
-      add(load("GPU", stats?.gpu), memory("Видеопамять", stats?.bytes));
-      add(load("Поток Chrome", browserLoad));
-      add(stats?.resolution?.join(" × "));
+      const memory = (label, bytes) => Number.isFinite(bytes) ? label + " ≈" + Math.round(bytes / 1048576) + " MiB" : "";
+      setMetric("gpu", load("GPU", stats?.gpu));
+      setMetric("memory", memory("GPU memory", stats?.bytes));
+      setMetric("thread", load("Chrome thread", browserLoad));
+      setMetric("resolution", stats?.resolution?.join(" × ") ?? "");
+      let interval = "";
       if (drawIntervals.length) {
         drawIntervals.sort((a, b) => a - b);
-        add("Интервал отрисовки p95 " + Math.round(drawIntervals[Math.ceil(0.95 * drawIntervals.length) - 1]) + " мс");
+        interval = "Frame interval p95 " + Math.round(drawIntervals[Math.ceil(0.95 * drawIntervals.length) - 1]) + " ms";
         drawIntervals.length = 0;
       }
-      if (stats?.resolution && elapsed > 0 && Number.isFinite(stats.dropped))
-        add("Пропуски при занятости " + (stats.dropped * 1000 / elapsed).toFixed(1) + "/с");
-      if (Number.isFinite(videoDrops)) add("Пропуски видео Chrome " + videoDrops.toFixed(1) + "/с");
-      hud.textContent = lines.join("\n");
+      setMetric("interval", interval);
+      setMetric("busy", stats?.resolution && elapsed > 0 && Number.isFinite(stats.dropped)
+        ? "Dropped while busy " + (stats.dropped * 1000 / elapsed).toFixed(1) + "/s" : "");
+      setMetric("drops", Number.isFinite(videoDrops) ? "Chrome video drops " + videoDrops.toFixed(1) + "/s" : "");
     }
     function reset() {
       lastVideoSample = undefined;
@@ -233,7 +291,8 @@
     function fail(message) {
       issue = message;
       canvas.hidden = true;
-      hud.textContent = "KittyPlays · " + message;
+      for (const {row} of metrics.values()) row.hidden = true;
+      setMetric("error", "KittyPlays · " + message);
     }
     function failCapture() {
       fail("Браузер закрыл доступ к кадрам");
@@ -345,7 +404,8 @@
       canvas.replaceWith(replacement);
       canvas = replacement;
       canvas.addEventListener("webglcontextlost", () => fail("Видеокарта недоступна"), {signal: events.signal});
-      mode = "Оптический поток";
+      mode = modeButtons.get("flow").textContent;
+      metrics.get("fps").row.firstChild.replaceWith(kittyPlaysIcon("flow"));
       reset();
       try { renderer = kittyRenderer(canvas, failCapture, isWindows); start(); }
       catch { select(undefined); fail("Ускорение WebGL 2 недоступно"); }
@@ -359,10 +419,10 @@
         button.title = error.message;
         startFlow(error);
       }
-      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit, fidelityFxMultiplier).then(fidelityFx => {
+      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit).then(fidelityFx => {
         if (disposed || !contextAlive()) { fidelityFx.dispose(); return; }
         renderer = fidelityFx;
-        mode = button.textContent;
+        mode = modeName;
         button.title = title;
         reset(); start();
       }).catch(fallbackFromFidelityFx);
@@ -370,7 +430,7 @@
     else kittyNeuralRenderer(canvas,startFlow,requested === "hybrid").then(neural => {
       if (disposed || fallback || !contextAlive()) { neural.dispose(); return; }
       renderer = neural;
-      mode = requested === "hybrid" ? "Hybrid" : "Нейросеть RIFE-student";
+      mode = modeName;
       reset(); start();
     }).catch(startFlow);
     function dispose() {
@@ -433,7 +493,12 @@
     scheduled = true;
     requestAnimationFrame(() => { scheduled = false; sync(); });
   });
-  function onAvailabilityChange(changes) {
+  let receivedInfoChange = false;
+  function onSettingsChange(changes) {
+    if (Object.hasOwn(changes, "showInfo")) {
+      receivedInfoChange = true;
+      setShowInfo(changes.showInfo.newValue !== false);
+    }
     const keys = kittyPlaysAvailabilityKeys.filter(key => Object.hasOwn(changes, key));
     if (!keys.length) return;
     for (const key of keys) availability[key] = changes[key].newValue;
@@ -441,18 +506,15 @@
     updateModeVisibility();
     sync();
   }
-  chrome.storage.local.onChanged.addListener(onAvailabilityChange);
+  chrome.storage.local.onChanged.addListener(onSettingsChange);
   Promise.all([
     chrome.storage.local.get([...kittyPlaysAvailabilityKeys, "enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
     detectKittyPlaysGraphics().catch(() => ({})),
   ]).then(([saved, graphics]) => {
     const {amd, nvidia, appleM1} = graphics;
     fidelityFxLabel = graphics.fidelityFxLabel;
-    if (fidelityFxLabel) modeButtons.get("fidelityfx").textContent = fidelityFxLabel;
-    if (nvidia) {
-      fidelityFxMultiplier = 8;
-      modeButtons.get("fidelityfx").title = "Generate frames in Chrome at source resolution up to the selected FPS";
-    }
+    if (fidelityFxLabel)
+      modeButtons.get("fidelityfx").replaceChildren(kittyPlaysIcon("fidelityfx"), fidelityFxLabel);
     for (const key of kittyPlaysAvailabilityKeys) {
       if (!Object.hasOwn(availability, key)) availability[key] = saved[key];
     }
@@ -467,8 +529,7 @@
       save({preferred});
     }
     if (["60", "120", "Max"].includes(saved.rate)) showRate(saved.rate);
-    if (typeof saved.showInfo === "boolean") showInfo = saved.showInfo;
-    infoButton.setAttribute("aria-pressed", String(showInfo));
+    if (!receivedInfoChange) setShowInfo(saved.showInfo !== false);
   }).catch(() => {}).finally(() => {
     if (!contextAlive()) return;
     initialized = true;

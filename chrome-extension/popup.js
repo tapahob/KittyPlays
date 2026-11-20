@@ -1,9 +1,15 @@
 (() => {
   const modes = document.querySelector("#modes");
   const status = document.querySelector("#status");
-  const switches = new Map([["extensionEnabled", document.querySelector("#enabled")]]);
+  const switches = new Map([
+    ["extensionEnabled", document.querySelector("#enabled")],
+    ["showInfo", document.querySelector("#show-info")],
+  ]);
   const settings = {};
 
+  for (const slot of document.querySelectorAll("[data-icon]"))
+    slot.append(kittyPlaysIcon(slot.dataset.icon));
+  document.querySelector("#version").textContent = "Version " + chrome.runtime.getManifest().version;
   for (const [mode, label, title] of kittyPlaysModes) {
     const row = document.createElement("label");
     row.className = "setting";
@@ -15,7 +21,7 @@
     input.type = "checkbox";
     input.setAttribute("role", "switch");
     input.disabled = true;
-    row.append(name, input);
+    row.append(kittyPlaysIcon(mode), name, input);
     modes.append(row);
     switches.set(kittyPlaysModeKey(mode), input);
 
@@ -38,7 +44,7 @@
     }
   });
 
-  chrome.storage.local.get(kittyPlaysAvailabilityKeys).then(saved => {
+  chrome.storage.local.get([...switches.keys()]).then(saved => {
     for (const [key, input] of switches) {
       if (!Object.hasOwn(settings, key)) setChecked(key, saved[key]);
       input.disabled = false;
