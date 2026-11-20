@@ -41,7 +41,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
     const phaseGrid = new Uint32Array(phaseData, 0, 2);
     const phaseTime = new Float32Array(phaseData, 8, 1);
     let cadence, playbackRate = 1, displayed, bypass = false;
-    let inFlight = 0, presenting = false, closed = false;
+    let inFlight = 0, pendingDraws = 0, closed = false;
     let busyDrops = 0;
 
     function fail(error) {
@@ -224,7 +224,9 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
 
     function drawAt(time) {
       if (closed || bypass || !frames.length || time < frames[0].time || time - frames.at(-1).time > 0.1) return null;
-      if (presenting) return false;
+      // Fullscreen queue completions can arrive several display ticks late.
+      // Overlap draws while bounding the backlog when the GPU really falls behind.
+      if (pendingDraws >= 4) return false;
       const nextIndex = frames.findIndex(frame => frame.time > time);
       const next = frames[nextIndex];
       const frame = nextIndex < 0 ? frames.at(-1) : frames[nextIndex - 1];
@@ -258,8 +260,8 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
       }
       device.queue.submit([encoder.finish()]);
       displayed = at;
-      presenting = true;
-      device.queue.onSubmittedWorkDone().catch(fail).finally(() => { presenting = false; });
+      pendingDraws++;
+      device.queue.onSubmittedWorkDone().catch(fail).finally(() => { pendingDraws--; });
       return true;
     }
 
