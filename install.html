@@ -70,7 +70,8 @@
   button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   button:disabled { opacity: .5; cursor: default; outline: none; }
   footer { justify-content: space-between; margin-top: 28px; border-top: 1px solid var(--stroke); padding-top: 20px; }
-  footer p, #copy-status { font-size: 13px; color: var(--muted); }
+  footer p, .address [role="status"] { font-size: 13px; color: var(--muted); }
+  #vulkan-address { width: 265px; }
   @media (max-width: 650px) {
     main { padding: 25px 14px 42px; }
     .wizard { grid-template-columns: minmax(0, 1fr); }
@@ -151,9 +152,14 @@
         <button id="detect" type="button">Check again</button>
         <aside id="vulkan-note" hidden>
           <h3>Enable Vulkan in Chrome</h3>
-          <p>On Linux, enabling Vulkan can make hardware WebGPU available for AI, Hybrid, and AMD FidelityFX.</p>
+          <p>Chrome did not report hardware WebGPU. On Linux, enabling Vulkan can help make it available for FidelityFX and other WebGPU modes.</p>
+          <div class="address">
+            <input id="vulkan-address" type="text" value="chrome://flags/#enable-vulkan" readonly aria-label="Chrome Vulkan flag address">
+            <button id="copy-vulkan" type="button">Copy flag address</button>
+            <span id="vulkan-copy-status" role="status"></span>
+          </div>
           <ol>
-            <li>Paste <code>chrome://flags/#enable-vulkan</code> into a new Chrome tab.</li>
+            <li>Copy the address above and paste it into the address bar of a new Chrome tab.</li>
             <li>Set <strong>Vulkan</strong> to <strong>Enabled</strong>, then click <strong>Relaunch</strong>.</li>
             <li>Return to this wizard and click <strong>Check again</strong> before continuing.</li>
           </ol>
@@ -338,18 +344,22 @@
     }
   }
   byId("detect").addEventListener("click", detect);
-  byId("copy").addEventListener("click", async () => {
-    const field = byId("extensions-address");
-    const status = byId("copy-status");
-    try {
-      await navigator.clipboard.writeText(field.value);
-      status.textContent = "Address copied.";
-    } catch {
-      field.focus();
-      field.select();
-      status.textContent = "Address selected. Press Ctrl+C or Command+C.";
-    }
-  });
+  function bindAddressCopy(buttonId, fieldId, statusId) {
+    const field = byId(fieldId);
+    const status = byId(statusId);
+    byId(buttonId).addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(field.value);
+        status.textContent = "Address copied.";
+      } catch {
+        field.focus();
+        field.select();
+        status.textContent = "Address selected. Press Ctrl+C or Command+C.";
+      }
+    });
+  }
+  bindAddressCopy("copy", "extensions-address", "copy-status");
+  bindAddressCopy("copy-vulkan", "vulkan-address", "vulkan-copy-status");
   detect();
 </script>
 </html>
