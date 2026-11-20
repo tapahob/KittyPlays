@@ -3,7 +3,7 @@
   <h1>KittyPlays</h1>
   <p><strong>Your YouTube. Much Smoother.</strong></p>
   <p>Real-time frame interpolation, right inside the YouTube player.<br>Choose your mode. Set your frame rate. Enjoy the motion.</p>
-  <p><a href="https://tapahob.github.io/KittyPlays/"><strong>Install KittyPlays &#10084;&#65039;</strong></a> &nbsp; &#10084;&#65039; &nbsp; <a href="#quick-start">Quick start</a> &nbsp; &#10084;&#65039; &nbsp; <a href="#playback-on-windows">Compatibility</a></p>
+  <p><a href="https://tapahob.github.io/KittyPlays/"><strong>Install KittyPlays</strong></a> &nbsp; &#10084;&#65039; &nbsp; <a href="#quick-start">Quick start</a> &nbsp; &#10084;&#65039; &nbsp; <a href="#playback-on-windows">Compatibility</a></p>
   <p><strong>60 FPS / 120 FPS / Max</strong> &nbsp; &#10084;&#65039; &nbsp; Local processing &nbsp; &#10084;&#65039; &nbsp; Desktop Chrome</p>
 </div>
 
