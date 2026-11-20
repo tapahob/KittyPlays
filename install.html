@@ -79,11 +79,57 @@
     nav li { padding: 6px 8px; }
     footer { flex-wrap: wrap; }
   }
+
+  /* KittyPlays brand */
+  :root { background: #100d14; color: #fff5fa; --muted: #bcb0c3; --accent: #ff76ae; --stroke: #3a283e; }
+  body { background: radial-gradient(ellipse at 85% 8%, #761f3b55, transparent 48%), radial-gradient(ellipse at 0 70%, #48265c44, transparent 55%), #100d14; }
+  main { max-width: 1120px; padding-top: 28px; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; color: #e9d9e7; font-size: 14px; }
+  .topbar a { text-decoration: none; color: var(--muted); }
+  .brand { font-weight: 800; letter-spacing: -.5px; font-size: 20px; }
+  header { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; margin: 18px 0 36px; align-items: center; }
+  header img { width: 100%; max-width: 350px; height: auto; border-radius: 0; background: transparent; justify-self: center; filter: drop-shadow(0 18px 45px #ff174430); }
+  .eyebrow { color: #ff94bd; text-transform: uppercase; font-size: 11px; font-weight: 800; letter-spacing: 2.5px; margin-bottom: 18px; }
+  h1 { font-size: clamp(38px, 5.6vw, 64px); letter-spacing: -2.5px; line-height: 1.04; margin-bottom: 20px; }
+  header p { font-size: 17px; max-width: 460px; line-height: 1.7; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+  .chips span { border: 1px solid var(--stroke); border-radius: 100px; padding: 7px 12px; font-size: 12px; color: #ebd4e5; background: #ffffff04; }
+  .wizard { background: #1c1621; border-radius: 22px; grid-template-columns: 220px minmax(0,1fr); box-shadow: 0 25px 80px #0005; }
+  nav { background: #16111b; padding: 26px 16px; }
+  nav ol { counter-reset: steps; }
+  nav li { display: flex; align-items: center; gap: 10px; padding: 14px 10px; margin-bottom: 6px; font-size: 13px; }
+  nav li::before { counter-increment: steps; content: counter(steps); display: grid; place-items: center; flex: 0 0 25px; height: 25px; border: 1px solid var(--stroke); border-radius: 50%; font-size: 11px; }
+  nav li[aria-current="step"] { background: #ff76ae12; color: #ffd5e7; }
+  nav li[aria-current="step"]::before { content: counter(steps); background: var(--accent); border-color: var(--accent); color: #29101d; }
+  h2 { letter-spacing: -.7px; }
+  .content { padding: 34px; }
+  .system > div, aside { background: #141019; border-color: #35263b; }
+  .system > div { padding: 18px; }
+  #compatibility { border-left: 3px solid var(--accent); padding: 8px 0 8px 14px; color: #ecd6e5; }
+  button, a.button { background: #302137; border-radius: 10px; padding: 10px 16px; }
+  .primary { background: #ff76ae; color: #2a1020; box-shadow: 0 4px 22px #ff76ae20; }
+  .page-note { text-align: center; font-size: 12px; color: var(--muted); margin-top: 25px; }
+  @media(max-width:650px) {
+    header { grid-template-columns: 1fr; gap: 0; margin-top: 28px; }
+    header img { grid-row: 1; max-width: 230px; margin-bottom: 20px; }
+    h1 { letter-spacing: -1.5px; }
+    .wizard { grid-template-columns: minmax(0,1fr); }
+    .content { padding: 24px 20px; }
+    nav { padding: 8px; }
+    nav ol { display: grid; grid-template-columns: 1fr 1fr; }
+    nav li { padding: 8px; margin: 0; }
+  }
 </style>
 <main>
+  <div class="topbar"><span class="brand">KittyPlays<span style="color:var(--accent)">.</span></span><a href="https://github.com/tapahob/KittyPlays">View on GitHub &#8599;</a></div>
   <header>
-    <img src="chrome-extension/icons/cat-60.webp" alt="" width="52" height="52">
-    <div><h1>Install KittyPlays</h1><p>Frame interpolation in the YouTube player for Chrome.</p></div>
+    <div>
+      <div class="eyebrow">Frame Generation for your YouTube</div>
+      <h1>Your YouTube.<br>Much Smoother.</h1>
+      <p>KittyPlays brings real-time frame interpolation to YouTube. Set your preferred mode and frame rate once, and KittyPlays remembers them as you watch.</p>
+      <div class="chips"><span>60 FPS &middot; 120 FPS &middot; Max</span><span>Runs locally</span><span>For desktop Chrome</span></div>
+    </div>
+    <img src="chrome-extension/icons/kittyplays-source.png" alt="KittyPlays cat wearing a gaming headset in front of a play button" width="1254" height="1254">
   </header>
   <div class="wizard">
     <nav aria-label="Installation progress">
@@ -171,6 +217,7 @@
       </footer>
     </div>
   </div>
+  <p class="page-note">Four steps to smoother playback. No native helper needed.</p>
 </main>
 <script>
   const byId = id => document.getElementById(id);

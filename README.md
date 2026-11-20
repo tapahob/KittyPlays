@@ -1,10 +1,32 @@
-# KittyPlays
+<div align="center">
+  <img src="chrome-extension/icons/kittyplays-source.png" alt="KittyPlays: a cat with a gaming headset and a YouTube play button" width="320">
+  <h1>KittyPlays</h1>
+  <p><strong>Your YouTube. Much Smoother.</strong></p>
+  <p>Real-time frame interpolation, right inside the YouTube player.<br>Choose your mode. Set your frame rate. Enjoy the motion.</p>
+  <p><a href="https://tapahob.github.io/KittyPlays/"><strong>Install KittyPlays &#10084;&#65039;</strong></a> &nbsp; &#10084;&#65039; &nbsp; <a href="#quick-start">Quick start</a> &nbsp; &#10084;&#65039; &nbsp; <a href="#playback-on-windows">Compatibility</a></p>
+  <p><strong>60 FPS / 120 FPS / Max</strong> &nbsp; &#10084;&#65039; &nbsp; Local processing &nbsp; &#10084;&#65039; &nbsp; Desktop Chrome</p>
+</div>
 
-KittyPlays brings real-time frame interpolation directly to the YouTube player in Chrome. Choose a mode and frame-rate target from the player controls while you watch. All frame processing runs locally.
+---
 
-Open the [KittyPlays installation wizard](https://tapahob.github.io/KittyPlays/) in Chrome. It checks your operating system and graphics adapter and guides you through installation. To run it locally, open [install.html](install.html) from the downloaded repository.
+## Make every frame count
 
-To update an unpacked install, reload KittyPlays on `chrome://extensions`, then refresh any open YouTube tabs. Saved NVIDIA VFG and NvOFFRUC selections migrate to **FidelityFX (WebGPU)** on NVIDIA or to the platform default on other systems. The extension performs interpolation in Chrome and requires no native helper.
+- **Your controls, in the player.** Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available on supported Windows and Linux systems.
+- **Motion powered by your GPU.** Frames are processed locally with WebGPU or accelerated WebGL 2. No native helper is needed.
+- **See how it performs.** The Info overlay shows source and output FPS, dropped frames, and timing. KittyPlays remembers your mode and frame-rate target.
+
+## Quick start
+
+1. Open the **[installation wizard](https://tapahob.github.io/KittyPlays/)** in desktop Chrome. It checks your system and graphics adapter.
+2. Download and extract the extension ZIP into a folder you will keep.
+3. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**. Select the folder containing `manifest.json`.
+4. Open or refresh a YouTube video. Choose a mode and FPS target from the player controls.
+
+Already have this repository? Load the `chrome-extension` folder directly, or open [install.html](install.html) for the local wizard.
+
+**Updating:** reload KittyPlays on `chrome://extensions`, then refresh your YouTube tabs. Saved NVIDIA VFG and NvOFFRUC selections migrate to **FidelityFX (WebGPU)** on NVIDIA or to the platform default on other systems.
+
+---
 
 ## Playback on Windows
 
