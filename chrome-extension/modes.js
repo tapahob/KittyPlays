@@ -2,7 +2,7 @@ const kittyPlaysModes = [
   ["ai", "AI", "Neural frame interpolation"],
   ["flow", "Optical Flow", "Optical flow interpolation"],
   ["hybrid", "Hybrid", "Neural interpolation with local optical flow correction"],
-  ["fidelityfx", "AMD FidelityFX", "Double the source frame rate with AMD FidelityFX, up to the selected FPS"],
+  ["fidelityfx", "AMD FidelityFX", "Generate frames in Chrome at source resolution up to the selected FPS"],
 ];
 const kittyPlaysPlatform = navigator.userAgentData?.platform || navigator.platform;
 const kittyPlaysModeKey = mode => "modeEnabled." + mode;

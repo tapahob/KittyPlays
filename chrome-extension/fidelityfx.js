@@ -1,12 +1,13 @@
 // Video-only FidelityFX path. Pixel data stays in browser GPU textures.
-async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit, maxMultiplier = 2) {
+async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit, maxMultiplier = 8, colorSpace = "srgb") {
   const adapter = await navigator.gpu?.requestAdapter({powerPreference: "high-performance"});
   if (!adapter || adapter.info.isFallbackAdapter) throw new Error("FidelityFX requires hardware WebGPU");
   signal.throwIfAborted();
   const device = await adapter.requestDevice();
   try {
+    const format = kittyFrameFormat(colorSpace);
     const stages = Object.entries(kittyFidelityFxShaders).flatMap(([name, code]) => {
-      const module = device.createShaderModule({label: name, code});
+      const module = device.createShaderModule({label: name, code: typeof code === "function" ? code(format) : code});
       if (name === "search") return [
         ["coarse", module, {radius: 8, usePrediction: 0}],
         ["refine", module, {radius: 4, usePrediction: 1}],
@@ -30,11 +31,12 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
     const read = textureUsage.TEXTURE_BINDING;
     const storage = textureUsage.STORAGE_BINDING;
     const copyIn = textureUsage.COPY_DST | textureUsage.RENDER_ATTACHMENT;
+    const hdr = kittyConfigureCanvas(context, device, colorSpace, copyIn | storage);
     const sampler = device.createSampler({minFilter: "linear", magFilter: "linear"});
     const frames = [], slots = [], levels = [], pyramids = [];
     let width = 0, height = 0, bytes = 0;
     let pyramidIndex = 0;
-    let projected, phase;
+    let projected, phase, intermediate;
     const phaseData = new ArrayBuffer(16);
     const phaseGrid = new Uint32Array(phaseData, 0, 2);
     const phaseTime = new Float32Array(phaseData, 8, 1);
@@ -52,7 +54,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
 
     function texture(w, h, format, usage, label) {
       const image = device.createTexture({label, size: [w, h], format, usage});
-      bytes += w * h * (format === "rg32sint" ? 8 : 4);
+      bytes += w * h * (format === "rg32sint" || format === "rgba16float" ? 8 : 4);
       return {image, view: image.createView()};
     }
 
@@ -62,6 +64,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
     }
 
     function reset() {
+      hdr?.reset();
       frames.length = 0;
       cadence = displayed = undefined;
       busyDrops = 0;
@@ -83,6 +86,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
       slots.length = levels.length = pyramids.length = 0;
       phase?.destroy();
       projected?.destroy();
+      intermediate?.image.destroy();
       bytes = 0;
     }
 
@@ -90,7 +94,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
       release();
       width = canvas.width = w;
       height = canvas.height = h;
-      context.configure({device, format: "rgba8unorm", alphaMode: "opaque", usage: copyIn | storage});
+      if (hdr) intermediate = texture(w, h, format, read | storage, "Interpolated HDR frame");
       while (levels.length < 7) {
         const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
         levels.push({w, h, cols, rows,
@@ -113,7 +117,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
     function makeSlot() {
       const cells = levels[0].cols * levels[0].rows;
       return {
-        color: texture(width, height, "rgba8unorm", read | copyIn | textureUsage.COPY_SRC, "Decoded frame"),
+        color: texture(width, height, format, read | copyIn | textureUsage.COPY_SRC | (hdr ? storage : 0), "Decoded frame"),
         vectors: buffer(cells * 8, bufferUsage.STORAGE),
         entries: buffer(cells * 4, bufferUsage.STORAGE),
         divergence: buffer(9 * 4, bufferUsage.STORAGE),
@@ -153,7 +157,7 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
       ], Math.ceil(finest.cols / 8), Math.ceil(finest.rows / 8));
     }
 
-    function upload(video, time, sourceFps) {
+    function upload(video, time, sourceFps, frame) {
       if (closed) return;
       const limit = getFrameLimit();
       playbackRate = video.playbackRate;
@@ -168,10 +172,20 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
         return;
       }
       const w = video.videoWidth, h = video.videoHeight;
-      if (w > 1920 || h > 1080) {
+      if (!hdr && (w > 1920 || h > 1080)) {
         fail(new Error("FidelityFX supports source video up to 1080p"));
         return;
       }
+      // Scatter entries reserve 20 bits for the source 8×8 block index.
+      if (Math.ceil(w / 8) * Math.ceil(h / 8) > 2 ** 20) {
+        fail(new Error("Video exceeds the optical-flow grid limit"));
+        return;
+      }
+      if (hdr) return hdr.capture(frame, (planes, w, h) => storeFrame(video, time, sourceFps, limit, w, h, planes), fail);
+      storeFrame(video, time, sourceFps, limit, w, h);
+    }
+
+    function storeFrame(video, time, sourceFps, limit, w, h, planes) {
       if (width !== w || height !== h) resize(w, h);
       const previous = frames.at(-1);
       const gap = time - previous?.time;
@@ -189,8 +203,9 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
           slots.push(slot);
         } else slot = frames.shift().slot;
       }
-      device.queue.copyExternalImageToTexture({source: video}, {texture: slot.color.image}, [width, height]);
       const encoder = device.createCommandEncoder();
+      if (hdr) hdr.unpack(encoder, planes, slot.color.image);
+      else device.queue.copyExternalImageToTexture({source: video}, {texture: slot.color.image, colorSpace}, [width, height]);
       const pass = encoder.beginComputePass();
       dispatch(pass, "luma", [slot.color.view, currLuma[0].view], levels[0].cols, levels[0].rows);
       for (let index = 1; index < levels.length; index++) {
@@ -219,8 +234,8 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
       const at = frame.time + fraction * span;
       if (displayed === at) return false;
       const encoder = device.createCommandEncoder();
-      const output = context.getCurrentTexture();
       if (step) {
+        const output = hdr ? intermediate.image : context.getCurrentTexture();
         const current = next.slot;
         phaseTime[0] = fraction;
         device.queue.writeBuffer(phase, 0, phaseData);
@@ -235,8 +250,11 @@ async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit
           {buffer: projected}, {buffer: current.divergence}, output.createView(), {buffer: phase},
         ], cols, rows);
         pass.end();
+        if (hdr) hdr.present(encoder, output);
+      } else if (hdr) {
+        hdr.present(encoder, frame.slot.color.image);
       } else {
-        encoder.copyTextureToTexture({texture: frame.slot.color.image}, {texture: output}, [width, height]);
+        encoder.copyTextureToTexture({texture: frame.slot.color.image}, {texture: context.getCurrentTexture()}, [width, height]);
       }
       device.queue.submit([encoder.finish()]);
       displayed = at;

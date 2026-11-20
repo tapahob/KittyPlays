@@ -32,7 +32,9 @@ Already have this repository? Load the `chrome-extension` folder directly, or op
 
 KittyPlays uses AI and Hybrid with WebGPU or Optical Flow with accelerated WebGL 2. These modes process and display frames inside Chrome without sending raw pixels through system memory to a native helper. The GPU path depends on Chrome's hardware video decoding and graphics acceleration. If WebGPU is unavailable, KittyPlays tries accelerated WebGL 2.
 
-AI is the default on Windows. On Radeon, select **AMD FidelityFX** in the KittyPlays menu on YouTube. On NVIDIA, select **FidelityFX (WebGPU)**. Both use hardware WebGPU and interpolate at the source resolution, up to 1080p. Radeon inserts one frame per source pair. On NVIDIA, the renderer estimates motion once per pair and draws up to eight output frames per source interval. Both respect the selected FPS limit.
+**HDR playback.** AI, Hybrid, Optical Flow, and FidelityFX interpolate both PQ and HLG video. On an HDR display, the WebGPU path uses the decoder's BT.2020 color planes (I420P10, I420, or NV12) and a floating-point canvas. Optical Flow uses the WebGPU motion estimator for HDR. If the decoder or display cannot supply the HDR path, KittyPlays continues interpolating with browser-converted color and shows **SDR output** in Info. Choose **Original** for playback at the source frame rate.
+
+KittyPlays defaults to **AMD FidelityFX** on supported Radeon graphics and **FidelityFX (WebGPU)** on supported NVIDIA graphics. It keeps your saved mode. On other Windows GPUs, the default is AI. FidelityFX uses hardware WebGPU and interpolates at the source resolution, with a 1080p limit on its SDR path. On both Radeon and NVIDIA, the renderer estimates motion once per pair and draws up to eight output frames per source interval. Both respect the selected FPS limit.
 
 ## Set up on macOS
 
@@ -140,7 +142,7 @@ If AI, Hybrid, or FidelityFX cannot run, the player tries Optical Flow when it i
 
 ## AMD FidelityFX on Linux
 
-On Linux, KittyPlays defaults to AMD FidelityFX when Chrome detects a Radeon adapter. A mode you selected earlier takes priority. FidelityFX uses hardware WebGPU and inserts one frame per source pair up to the selected FPS limit. It uploads decoded video to browser textures and presents from the GPU without sending pixels to a native helper. Hardware video decoding and texture sharing depend on Chromium and the driver. If hardware WebGPU is unavailable or the video is above 1080p, KittyPlays switches to Optical Flow.
+On Linux, KittyPlays defaults to FidelityFX when Chrome detects a supported Radeon or NVIDIA adapter. A mode you selected earlier takes priority. FidelityFX uses hardware WebGPU and draws up to eight output frames per source interval, respecting the selected FPS limit. It uploads decoded video to browser textures and presents from the GPU without sending pixels to a native helper. Hardware video decoding and texture sharing depend on Chromium and the driver. If hardware WebGPU is unavailable or SDR video exceeds 1080p, KittyPlays tries Optical Flow.
 
 The browser port uses hierarchical luminance matching, vector filtering and projection, and interpolation at the requested position between source frames. It specializes the SDK for video sources with no game depth or motion vectors. A Vulkan reference implementation is in [native/fidelityfx](native/fidelityfx).
 

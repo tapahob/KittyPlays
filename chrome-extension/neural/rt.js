@@ -922,7 +922,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // (copy then warp) - sharper mids for less bandwidth. Filter precision is the
 // sampler's (~8-bit subtexel) - same +-1 LSB class as the rgba8 store above.
 function wgslFlowOutTexDirect(W, H, staticGuard = false, withRes = false, WGX = 16, WGY = 8,
-                              experimentalMaskSharpen = null, flowUpsample = 'edge', hybrid = false) {
+                              experimentalMaskSharpen = null, flowUpsample = 'edge', hybrid = false, outputFormat = 'rgba8unorm') {
   // flow upsample mode (texture path, only runs when output res > model res):
   //   'edge'     - joint bilateral edge-guided upsample (current default)
   //   'gate'     - edge-guided, but fall back to bilinear where no low-res grid
@@ -1040,7 +1040,7 @@ function wgslFlowOutTexDirect(W, H, staticGuard = false, withRes = false, WGX = 
   return /* wgsl */`
 @group(0) @binding(0) var t8f: texture_2d<f32>;  // flow/8: fx0,fy0,fx1,fy1
 @group(0) @binding(1) var t8m: texture_2d<f32>;  // mask logit in .x
-@group(0) @binding(2) var outTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var outTex: texture_storage_2d<${outputFormat}, write>;
 ${withRes ? `@group(0) @binding(3) var resT: texture_2d<f32>; // refine residual b,g,r` : ''}
 ${staticGuard ? /* wgsl */`@group(0) @binding(4) var<storage, read> sdiff: array<f32>; // [${H},${W}]
 @group(0) @binding(5) var<storage, read> guardT: array<f32>;
@@ -1495,7 +1495,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 async function createRT(device, { w, h, weightsBin, weightsManifest, convTune,
-                                          textureInput = false, textureOutput = false,
+                                          textureInput = false, textureOutput = false, outputFormat = "rgba8unorm",
                                           staticGuard = false, hybrid = false,
                                           sparseRefine = true, refineThr = 0.02,
                                           debugOutputs = false,
@@ -1701,7 +1701,7 @@ async function createRT(device, { w, h, weightsBin, weightsManifest, convTune,
       : wgslConv(C2, C2, W16, H16, W16, H16, 1, true, false)),
     pipeAsync(wgslDeconv(C2, 5, W16, H16, W8, H8, useF16, direct)),
     pipeAsync(textureOutput
-      ? (direct ? wgslFlowOutTexDirect(w, h, staticGuard, refi, 16, 8, experimentalMaskSharpen, flowUpsample, hybrid) : wgslFlowOutTex(w, h, staticGuard, refi))
+      ? (direct ? wgslFlowOutTexDirect(w, h, staticGuard, refi, 16, 8, experimentalMaskSharpen, flowUpsample, hybrid, outputFormat) : wgslFlowOutTex(w, h, staticGuard, refi))
       : wgslFlowOut(w, h)),
     sdiff ? pipeAsync(wgslDiff(w, h)) : null,
     // tfact cb6 with the FiLM affine fused into its tile load (f16 path only;

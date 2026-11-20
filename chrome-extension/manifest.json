@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KittyPlays для YouTube",
-  "version": "1.3.8",
+  "version": "1.3.9",
   "description": "Локальная интерполяция с выбором частоты кадров и счётчиком FPS поверх видео.",
   "icons": { "16": "icons/kittyplays-16.png", "32": "icons/kittyplays-32.png", "48": "icons/kittyplays-48.png", "128": "icons/kittyplays-128.png" },
   "action": { "default_title": "KittyPlays settings", "default_popup": "popup.html", "default_icon": { "16": "icons/kittyplays-16.png", "32": "icons/kittyplays-32.png", "48": "icons/kittyplays-48.png", "128": "icons/kittyplays-128.png" } },
@@ -9,7 +9,7 @@
   "permissions": ["storage"],
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],
-    "js": ["motion.js", "renderer.js", "neural/rt.js", "neural.js", "fidelityfx-shaders.js", "fidelityfx.js", "modes.js", "ui-icons.js", "player.js"],
+    "js": ["color.js", "motion.js", "renderer.js", "neural/rt.js", "neural.js", "fidelityfx-shaders.js", "fidelityfx.js", "modes.js", "ui-icons.js", "player.js"],
     "css": ["theme.css", "player.css"],
     "run_at": "document_idle"
   }]

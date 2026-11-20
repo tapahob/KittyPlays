@@ -285,14 +285,14 @@ const kittyFidelityFxShaders = {
 
   // The video has neither game motion vectors nor a depth buffer. Use the
   // unwarped pair as the stationary candidate in the SDK's color comparison.
-  interpolate: `
+  interpolate: format => `
     @group(0) @binding(0) var previous: texture_2d<f32>;
     @group(0) @binding(1) var current: texture_2d<f32>;
     @group(0) @binding(2) var linear: sampler;
     @group(0) @binding(3) var<storage, read> vectors: array<vec2<f32>>;
     @group(0) @binding(4) var<storage, read> projected: array<u32>;
     @group(0) @binding(5) var<storage, read> divergence: array<f32>;
-    @group(0) @binding(6) var output: texture_storage_2d<rgba8unorm, write>;
+    @group(0) @binding(6) var output: texture_storage_2d<${format}, write>;
     struct Phase { grid: vec2<u32>, t: f32 }
     @group(0) @binding(7) var<uniform> phase: Phase;
 

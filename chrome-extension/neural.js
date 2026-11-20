@@ -1,6 +1,6 @@
 // Framegen's tfact2 student shares its expensive trunk across all the times
 // generated for one input pair. Only the scene classification returns to the CPU.
-async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
+async function kittyNeuralRenderer(canvas, onFailure, hybrid = false, colorSpace = "srgb") {
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter || adapter.info?.isFallbackAdapter) throw new Error("Hardware WebGPU unavailable");
   const device = await adapter.requestDevice({
@@ -9,6 +9,10 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
   let closed = false,
     net;
   try {
+    const context = canvas.getContext("webgpu");
+    if (!context) throw new Error("WebGPU canvas unavailable");
+    const format = kittyFrameFormat(colorSpace);
+    const hdr = kittyConfigureCanvas(context, device, colorSpace, GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT);
     const model = await chrome.runtime.sendMessage({type: "kittyplays-load-model"});
     if (!model?.weights) throw new Error(model?.error || "Model data unavailable");
     const weightsBin = (Uint8Array.fromBase64
@@ -22,11 +26,10 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
       weightsManifest: model.manifest,
       textureInput: true,
       textureOutput: true,
+      outputFormat: format,
       staticGuard: true,
       hybrid,
     });
-    const context = canvas.getContext("webgpu");
-    if (!context) throw new Error("WebGPU canvas unavailable");
     const U = GPUTextureUsage,
       B = GPUBufferUsage;
     const sceneBytes = Uint32Array.BYTES_PER_ELEMENT;
@@ -110,9 +113,10 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
         : null;
       prepare.calls = generate.calls = 0;
       return { gpu, bytes: net.allocatedBytes + sceneBytes
-        + width * height * 4 * (slots.length + (out ? 1 : 0)) };
+        + width * height * (format === "rgba16float" ? 8 : 4) * (slots.length + (out ? 1 : 0)) };
     }
     const reset = () => {
+      hdr?.reset();
       epoch++;
       prepare.calls = generate.calls = 0;
       frames = [];
@@ -136,36 +140,31 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
       freeTextures();
       width = canvas.width = w;
       height = canvas.height = h;
-      context.configure({
-        device,
-        format: "rgba8unorm",
-        alphaMode: "opaque",
-        usage: U.COPY_DST | U.RENDER_ATTACHMENT,
-      });
       out = device.createTexture({
         size: [w, h],
-        format: "rgba8unorm",
-        usage: U.STORAGE_BINDING | U.COPY_SRC,
+        format,
+        usage: U.STORAGE_BINDING | U.COPY_SRC | (hdr ? U.TEXTURE_BINDING : 0),
       });
     }
-    function upload(video, time) {
+    function upload(video, time, planes, w = video.videoWidth, h = video.videoHeight) {
       if (reading || closed) return;
-      if (video.videoWidth !== width || video.videoHeight !== height)
-        resize(video.videoWidth, video.videoHeight);
+      if (w !== width || h !== height) resize(w, h);
       let slot = slots.find((s) => !frames.some((f) => f.slot === s));
       if (!slot) {
         const image = device.createTexture({
           size: [width, height],
-          format: "rgba8unorm",
+          format,
           usage:
-            U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT,
+            U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT | (hdr ? U.STORAGE_BINDING : 0),
         });
         slot = { image, view: image.createView() };
         slots.push(slot);
       }
-      device.queue.copyExternalImageToTexture(
+      const enc = device.createCommandEncoder();
+      if (hdr) hdr.unpack(enc, planes, slot.image);
+      else device.queue.copyExternalImageToTexture(
         { source: video },
-        { texture: slot.image },
+        { texture: slot.image, colorSpace },
         [width, height],
       );
       const prev = frames.at(-1);
@@ -177,8 +176,7 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
           { binding: 2, resource: { buffer: scene } },
         ],
       });
-      const enc = device.createCommandEncoder(),
-        pass = enc.beginComputePass();
+      const pass = enc.beginComputePass();
       pass.setPipeline(scenePipe);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(1);
@@ -223,8 +221,10 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
       }
       shown = source;
       const enc = device.createCommandEncoder();
-      enc.copyTextureToTexture(
-        { texture: source?.slot.image || out },
+      const image = source?.slot.image || out;
+      if (hdr) hdr.present(enc, image);
+      else enc.copyTextureToTexture(
+        { texture: image },
         { texture: context.getCurrentTexture() },
         [width, height],
       );
@@ -241,7 +241,10 @@ async function kittyNeuralRenderer(canvas, onFailure, hybrid = false) {
     }
     return {
       reset,
-      upload,
+      upload(video, time, fps, frame) {
+        if (hdr && !reading && !closed) hdr.capture(frame, (planes, w, h) => upload(video, time, planes, w, h), failure);
+        else if (!hdr) upload(video, time);
+      },
       drawAt,
       resources,
       dispose() {

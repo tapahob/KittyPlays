@@ -169,7 +169,7 @@
       <section hidden>
         <h2 tabindex="-1">Download the extension</h2>
         <p>Download and extract the Chrome extension ZIP into a folder named <code>KittyPlays-Chrome</code>. Keep that folder in place because Chrome loads the extension directly from it.</p>
-        <a class="button" href="https://tapahob.github.io/KittyPlays/KittyPlays-Chrome.zip" download>Download Chrome extension ZIP</a>
+        <a class="button" href="https://tapahob.github.io/KittyPlays/KittyPlays-Chrome.zip?v=1.3.9" download>Download Chrome extension ZIP (1.3.9)</a>
         <p id="extract-tip"></p>
         <p>If you already have the repository on this device, you can use its <code>chrome-extension</code> folder.</p>
       </section>
@@ -190,17 +190,15 @@
       <section hidden>
         <h2 tabindex="-1">Try it on YouTube</h2>
         <p>Open a video or reload an existing YouTube tab. The KittyPlays controls appear in the player next to the playback buttons. Choose a mode and a frame-rate target. <strong>Info</strong> shows the source and output FPS.</p>
+        <p>AI, Hybrid, Optical Flow, and FidelityFX interpolate HDR video. When HDR output is unavailable, interpolation continues in SDR. Choose <strong>Original</strong> to play at the source frame rate.</p>
         <div class="actions"><a class="button" href="https://www.youtube.com/" target="_blank" rel="noopener">Open YouTube</a></div>
         <aside id="mac-note" hidden>
           <h3>Playback on macOS</h3>
           <p>KittyPlays starts in Optical Flow when Chrome identifies the base Apple M1 GPU. You can also choose AI or Hybrid if WebGPU is available. All three modes run directly in Chrome.</p>
           <p>Select <strong>Max</strong> to follow the refresh rate Chrome can use on your current display.</p>
         </aside>
-        <aside id="fidelityfx-note" hidden>
-          <h3>FidelityFX</h3>
-          <p>In the KittyPlays menu on YouTube, select <strong id="fidelityfx-mode">AMD FidelityFX</strong>. This mode runs in Chrome using hardware WebGPU and switches to Optical Flow if WebGPU is unavailable.</p>
-          <p id="fidelityfx-default" hidden>On Linux with Radeon graphics, KittyPlays selects FidelityFX by default unless you have saved another mode.</p>
-          <details id="fidelityfx-legacy" hidden>
+        <aside id="fidelityfx-legacy" hidden>
+          <details>
             <summary>Legacy Vulkan helper for older builds</summary>
             <p>The current extension uses WebGPU. Use these downloads with an older extension build that supports the native helper.</p>
             <ol>
@@ -208,10 +206,6 @@
               <li><a href="scripts/setup-fidelityfx.py" download>Download the registration script</a>. Run it with Python 3 and supply the older extension ID and the path to the built helper.</li>
             </ol>
           </details>
-        </aside>
-        <aside id="windows-note" hidden>
-          <h3>Playback on Windows</h3>
-          <p>AI, Hybrid, and Optical Flow process and display frames inside Chrome using graphics acceleration. No native helper is needed.</p>
         </aside>
       </section>
       <footer>
@@ -305,8 +299,7 @@
     byId("mac-note").hidden = platform !== "macOS";
     byId("gpu").textContent = "Detecting…";
     byId("compatibility").textContent = "Checking browser capabilities…";
-    byId("windows-note").hidden = platform !== "Windows";
-    byId("fidelityfx-note").hidden = true;
+    byId("fidelityfx-legacy").hidden = true;
     byId("vulkan-note").hidden = true;
     next.disabled = currentStep === 0 && mobile;
     byId("extract-tip").textContent = ({
@@ -322,9 +315,6 @@
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
       const fidelityFx = !mobile && platform !== "macOS" && (gpu.amd || gpu.nvidia);
       const linuxRadeon = platform === "Linux" && gpu.amd;
-      byId("fidelityfx-note").hidden = !fidelityFx;
-      byId("fidelityfx-mode").textContent = gpu.nvidia ? "FidelityFX (WebGPU)" : "AMD FidelityFX";
-      byId("fidelityfx-default").hidden = !linuxRadeon;
       byId("fidelityfx-legacy").hidden = !linuxRadeon;
       byId("vulkan-note").hidden = platform !== "Linux" || !chrome || gpu.webgpu;
       const webgpuModes = fidelityFx ? "AI, Hybrid, and FidelityFX" : "AI and Hybrid";

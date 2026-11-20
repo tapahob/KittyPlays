@@ -60,7 +60,7 @@
       if (button.hidden) return;
       modeMenu.open = false;
       modeTrigger.focus();
-      if (selected === value) return;
+      if (selected === value && !(value === "original" && interpolate)) return;
       interpolate = value !== "original";
       if (interpolate) {
         preferred = value;
@@ -178,7 +178,10 @@
     menuStar.className = "kittyplays-star kittyplays-menu-star";
     menu.append(menuStar);
   }
-  function attach(video, host, requested) {
+  function attach(video, host, requested, profile, retryConverted) {
+    const converted = profile === "converted";
+    const colorSpace = converted ? "srgb" : profile;
+    const hdr = colorSpace === "pq" || colorSpace === "hlg";
     let canvas = document.createElement("canvas");
     const hud = document.createElement("div");
     canvas.className = "kittyplays-surface";
@@ -217,7 +220,7 @@
     metrics.get("fps").text.append(headline, sourceRate, " / ", outputRate);
     video.after(canvas);
     host.append(hud);
-    let renderer, raf, callback, previous, latest, sourceFps, issue;
+    let renderer, raf, previous, latest, sourceFps, issue;
     const modeName = modeButtons.get(requested).textContent;
     let mode = "Loading " + modeName;
     let disposed = false, fallback = false;
@@ -252,7 +255,7 @@
       lastVideoSample = quality;
       const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
       metrics.get("fps").row.hidden = false;
-      setText(headline, mode + " · FPS ");
+      setText(headline, mode + (converted ? " · SDR output" : hdr ? " · HDR" : "") + " · FPS ");
       setText(sourceRate, sourceFps ? String(Math.round(sourceFps)) : "—");
       setText(outputRate, String(fps));
       const load = (label, value) => Number.isFinite(value) ? label + " ≈" + Math.round(value) + "%" : "";
@@ -295,6 +298,7 @@
       setMetric("error", "KittyPlays · " + message);
     }
     function failCapture() {
+      if (hdr) { retryConverted(); return; }
       fail("Браузер закрыл доступ к кадрам");
     }
     const size = new ResizeObserver(layout);
@@ -305,9 +309,8 @@
     for (const event of ["seeking", "pause", "waiting", "ratechange"]) {
       video.addEventListener(event, reset, {signal: events.signal});
     }
-    function capture(_, frame) {
-      callback = video.requestVideoFrameCallback(capture);
-      if (issue || video.paused || video.seeking || document.hidden || !video.videoWidth) return;
+    function capture(frame, decoded) {
+      if (disposed || issue || !renderer || video.paused || video.seeking || document.hidden || !video.videoWidth) return;
       if (video.mediaKeys) { fail("Защищённое видео"); return; }
       try {
         previous = latest;
@@ -320,7 +323,7 @@
         } else previous = undefined;
         if (!previous) renderer.reset();
         const began = showInfo ? performance.now() : null;
-        renderer.upload(video,frame.mediaTime,sourceFps);
+        renderer.upload(video,frame.mediaTime,sourceFps,decoded);
         if (began !== null) browserMs += performance.now() - began;
       } catch { failCapture(); }
     }
@@ -337,7 +340,9 @@
         const playhead = latest.mediaTime + (now-latest.expectedDisplayTime)*video.playbackRate/1000;
         const delay = Math.max((renderer.delay || 0) * video.playbackRate, 2.25 / (sourceFps || 30));
         const began = showInfo ? performance.now() : null;
-        const presented = renderer.drawAt(playhead - delay);
+        let presented;
+        try { presented = renderer.drawAt(playhead - delay); }
+        catch { failCapture(); return; }
         if (began !== null) browserMs += performance.now() - began;
         if (presented === null) {
           canvas.hidden = true;
@@ -368,14 +373,12 @@
     reset();
     layout();
     function start() {
-      if (document.hidden || callback !== undefined) return;
-      callback = video.requestVideoFrameCallback(capture);
+      if (document.hidden || raf !== undefined) return;
       raf = requestAnimationFrame(render);
     }
     function stop() {
-      if (callback !== undefined) video.cancelVideoFrameCallback(callback);
       if (raf !== undefined) cancelAnimationFrame(raf);
-      callback = raf = undefined;
+      raf = undefined;
     }
     document.addEventListener("visibilitychange", () => {
       if (!contextAlive()) return;
@@ -388,6 +391,7 @@
     }, {signal: events.signal});
     function startFlow(error) {
       if (disposed || fallback || !contextAlive()) return;
+      if (hdr) { retryConverted(); return; }
       fallback = true;
       if (error) console.warn("KittyPlays: " + requested + " renderer unavailable", error);
       fallbackAvailable = isModeAvailable("flow");
@@ -411,24 +415,29 @@
       catch { select(undefined); fail("Ускорение WebGL 2 недоступно"); }
     }
     select(requested);
-    if (requested === "fidelityfx") {
-      const button = modeButtons.get("fidelityfx");
+    if (colorSpace === "protected") {
+      select("original");
+      fail("Защищённое видео");
+    } else if (requested === "fidelityfx" || (requested === "flow" && hdr)) {
+      // Use the WebGPU optical-flow estimator when presenting HDR. The WebGL
+      // drawing buffer used by Optical Flow on SDR sources is eight-bit.
+      const button = modeButtons.get(requested);
       const title = button.title;
       function fallbackFromFidelityFx(error) {
         if (disposed || !contextAlive()) return;
-        button.title = error.message;
+        if (!hdr) button.title = error.message;
         startFlow(error);
       }
-      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit).then(fidelityFx => {
-        if (disposed || !contextAlive()) { fidelityFx.dispose(); return; }
+      createFidelityFxRenderer(canvas, events.signal, fallbackFromFidelityFx, () => frameLimit, 8, colorSpace).then(fidelityFx => {
+        if (disposed || issue || fallback || !contextAlive()) { fidelityFx.dispose(); return; }
         renderer = fidelityFx;
         mode = modeName;
         button.title = title;
         reset(); start();
       }).catch(fallbackFromFidelityFx);
     } else if (requested === "flow") startFlow();
-    else kittyNeuralRenderer(canvas,startFlow,requested === "hybrid").then(neural => {
-      if (disposed || fallback || !contextAlive()) { neural.dispose(); return; }
+    else kittyNeuralRenderer(canvas,startFlow,requested === "hybrid",colorSpace).then(neural => {
+      if (disposed || issue || fallback || !contextAlive()) { neural.dispose(); return; }
       renderer = neural;
       mode = modeName;
       reset(); start();
@@ -444,7 +453,7 @@
       canvas.remove();
       hud.remove();
     }
-    return {video, requested, dispose, get needsRestart() {
+    return {capture, dispose, get needsRestart() {
       return fallback && fallbackAvailable !== isModeAvailable("flow");
     }, setInfoVisible(visible) {
       if (disposed) return;
@@ -458,6 +467,53 @@
         output = 0;
       }
     }};
+  }
+  // YouTube can switch transfer functions without changing the video element
+  // or its resolution. Check metadata before feeding each frame to a renderer.
+  function watchColor(video, host, requested) {
+    let playback, colorSpace, converted = false;
+    const display = matchMedia("(dynamic-range: high)");
+    function capture(_, frame) {
+      if (!contextAlive()) return;
+      callback = video.requestVideoFrameCallback(capture);
+      if (document.hidden || video.seeking || !video.videoWidth) return;
+      let decoded, next = video.mediaKeys ? "protected" : "srgb";
+      if (!video.mediaKeys) {
+        try {
+          decoded = new VideoFrame(video);
+          next = kittyVideoColorSpace(decoded);
+          if (next !== "srgb" && !display.matches) next = "converted";
+        }
+        catch { /* The regular renderer can still try importing the video element. */ }
+      }
+      try {
+        if (next !== colorSpace) {
+          playback?.dispose();
+          playback = undefined;
+          colorSpace = next;
+          converted = false;
+        }
+        playback ??= attach(video, host, requested, converted ? "converted" : colorSpace, () => {
+          // Retry this same mode with browser-converted frames. Keep this
+          // decision until the source profile or display capability changes.
+          converted = true;
+          playback?.dispose();
+          playback = undefined;
+        });
+        playback.capture(frame, decoded);
+      } finally {
+        decoded?.close();
+      }
+    }
+    select(requested);
+    let callback = video.requestVideoFrameCallback(capture);
+    return {video, requested, get needsRestart() { return playback?.needsRestart; },
+      setInfoVisible(visible) { playback?.setInfoVisible(visible); },
+      dispose() {
+        video.cancelVideoFrameCallback(callback);
+        playback?.dispose();
+      }
+    };
   }
   function contextAlive() {
     if (chrome.runtime?.id) return true;
@@ -483,7 +539,7 @@
       active = undefined;
     }
     if (!video) select(requested === "original" ? "original" : undefined);
-    else if (!active) active = attach(video, host, requested);
+    else if (!active) active = watchColor(video, host, requested);
   }
   // YouTube reuses the document and may replace the video after navigation.
   let scheduled = false;
@@ -511,7 +567,7 @@
     chrome.storage.local.get([...kittyPlaysAvailabilityKeys, "enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
     detectKittyPlaysGraphics().catch(() => ({})),
   ]).then(([saved, graphics]) => {
-    const {amd, nvidia, appleM1} = graphics;
+    const {nvidia, appleM1} = graphics;
     fidelityFxLabel = graphics.fidelityFxLabel;
     if (fidelityFxLabel)
       modeButtons.get("fidelityfx").replaceChildren(kittyPlaysIcon("fidelityfx"), fidelityFxLabel);
@@ -520,7 +576,7 @@
     }
     updateModeVisibility();
     if (typeof saved.enabled === "boolean") interpolate = saved.enabled;
-    if (amd && !isWindows) preferred = "fidelityfx";
+    if (isModeAvailable("fidelityfx")) preferred = "fidelityfx";
     if (appleM1) preferred = "flow";
     if (saved.preferred !== "original" && modeButtons.has(saved.preferred) && supportsMode(saved.preferred))
       preferred = saved.preferred;
