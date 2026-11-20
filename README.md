@@ -40,8 +40,92 @@ On an Apple Silicon Mac, load the `chrome-extension` folder from `chrome://exten
 
 ## Architecture
 
-- **YouTube integration** adds interpolation controls and an optional statistics overlay to the native YouTube player. WebGPU and WebGL run inside Chrome.
-- **FidelityFX on Windows and Linux with Radeon or NVIDIA graphics** runs a video-specific port of FidelityFX SDK 1.1.4 Optical Flow and Frame Interpolation in WebGPU. It shares the player with the browser modes.
+### Extension components
+
+[The Manifest V3 entry point](chrome-extension/manifest.json) loads the content scripts on YouTube and registers [the service worker](chrome-extension/action.js). The worker forwards toolbar clicks to the active tab and serves bundled model weights and menu icons on request. Frame processing runs in the YouTube tab.
+
+[The player integration](chrome-extension/player.js) adds mode and FPS controls to YouTube, manages the renderer as the active video changes, and positions an output canvas over the source video. It saves the selected mode, FPS target, and Info visibility in Chrome's local extension storage.
+
+```mermaid
+---
+title: KittyPlays runtime architecture
+---
+flowchart LR
+    subgraph Extension["Chrome extension"]
+        direction TB
+        Toolbar["Toolbar button"] --> Worker["Service worker · action.js"]
+        Assets["Packaged weights and icons"] --> Worker
+        Storage[("Chrome local storage")]
+    end
+
+    subgraph Tab["YouTube tab"]
+        direction TB
+        Controls["Mode, FPS and Info controls"] --> Player["Player integration · player.js"]
+        Video["Native video element"] ==>|"Decoded frames"| Player
+        Player ==>|"Timestamped frames"| Renderer["Active WebGPU or WebGL 2 renderer"]
+        Renderer ==>|"Rendered frames"| Canvas["Canvas over the original video"]
+        Renderer -.->|"Performance counters"| Player
+        Player -.->|"FPS and timing"| HUD["Info overlay"]
+    end
+
+    Worker -.->|"Toggle interpolation or return assets"| Player
+    Player -.->|"Read and save preferences"| Storage
+
+    classDef host fill:#222838,stroke:#66738c,color:#f2f5fb
+    classDef control fill:#412343,stroke:#c576ae,color:#fff3fb
+    classDef frame fill:#153842,stroke:#65b9c7,color:#edfcff
+    class Toolbar,Worker,Assets,Storage host
+    class Controls,Player,HUD control
+    class Video,Renderer,Canvas frame
+```
+
+Thick arrows carry frames. Dashed arrows carry messages, settings, or metrics.
+
+### From decoded frames to the screen
+
+Chrome decodes the source video. On each `requestVideoFrameCallback`, the player script reads the frame timestamp, estimates source FPS, and passes the video frame to the active renderer. The renderer keeps recent frames in textures. The separate `requestAnimationFrame` loop uses the video clock and the selected FPS target to schedule draws. It requests a slightly delayed point in the video timeline so the renderer can interpolate between frames it has already received.
+
+```mermaid
+---
+title: Frame capture and presentation
+---
+sequenceDiagram
+    participant Video as Chrome video
+    participant Player as Player integration
+    participant GPU as GPU renderer
+    participant Canvas as Output canvas
+
+    loop When Chrome delivers a decoded frame
+        Video->>Player: Video frame callback with media timestamp
+        Player->>GPU: Upload video frame and update source FPS estimate
+        Note right of GPU: Recent frames stay in textures
+    end
+
+    loop On each animation callback
+        Player->>Player: Check FPS cap and calculate delayed media time
+        opt Draw is due and recent frames are available
+            Player->>GPU: Draw at the requested media time
+            GPU->>Canvas: Present the output frame when ready
+            GPU-->>Player: Return draw status for output FPS and timing
+        end
+    end
+```
+
+The two loops run independently during playback. A display tick can use frames already uploaded by earlier video callbacks.
+
+Seeking, pausing, and buffering reset the renderer's frame history so it can resume from fresh frames. The output canvas is hidden during a reset, revealing the original video.
+
+### Rendering modes
+
+| Mode | Pipeline |
+| --- | --- |
+| AI | [The WebGPU neural renderer](chrome-extension/neural.js) uses the bundled Framegen tfact2 model and reuses its work on each source pair across multiple interpolation times. |
+| Hybrid | Uses the same neural pipeline with a local optical flow correction in [the runtime](chrome-extension/neural/rt.js). |
+| Optical Flow | [The WebGL 2 renderer](chrome-extension/renderer.js) uses [motion estimation shaders](chrome-extension/motion.js) to interpolate between video frames. |
+| FidelityFX | [The WebGPU renderer](chrome-extension/fidelityfx.js) ports FidelityFX SDK 1.1.4 Optical Flow and Frame Interpolation for video. It estimates motion from the source frames and uses it to generate intermediate frames. |
+| Original | YouTube presents the source video directly. |
+
+If AI, Hybrid, or FidelityFX cannot run, the player tries Optical Flow. If WebGL 2 also fails to initialize, playback continues with the original video.
 
 ## Features
 
