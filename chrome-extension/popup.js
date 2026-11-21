@@ -6,11 +6,6 @@
     ["showInfo", document.querySelector("#show-info")],
   ]);
   const settings = {};
-  if (/^win/i.test(kittyPlaysPlatform)) {
-    const shadows = document.querySelector("#windows-hdr-shadows");
-    shadows.closest("label").hidden = false;
-    switches.set("forceWindowsHdrShadows", shadows);
-  }
 
   for (const slot of document.querySelectorAll("[data-icon]"))
     slot.append(kittyPlaysIcon(slot.dataset.icon));
@@ -41,7 +36,7 @@
 
   function setChecked(key, value) {
     settings[key] = value;
-    switches.get(key).checked = key === "forceWindowsHdrShadows" ? value === true : value !== false;
+    switches.get(key).checked = value !== false;
   }
   chrome.storage.local.onChanged.addListener(changes => {
     for (const key of switches.keys()) {
