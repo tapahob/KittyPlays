@@ -13,9 +13,17 @@ test("Windows HDR presentation preserves the BT.709 shadow curve for SDR video",
     await page.addScriptTag({path: path.resolve(__dirname, "../chrome-extension/color.js")});
     const {profiles, samples} = await page.evaluate(() => {
       const frame = {format: "NV12", colorSpace: {primaries: "bt709", transfer: "bt709", matrix: "bt709"}};
-      const profiles = [kittyVideoColorSpace(frame, false), kittyVideoColorSpace(frame, true)];
+      const profiles = [
+        kittyVideoColorSpace(frame, {hdrCanvas: false}),
+        kittyVideoColorSpace(frame, {hdrCanvas: true, matchBt709: true}),
+        kittyVideoColorSpace(frame, {hdrCanvas: false, matchBt709: true}),
+      ];
       frame.colorSpace.transfer = "iec61966-2-1";
-      profiles.push(kittyVideoColorSpace(frame, true));
+      profiles.push(kittyVideoColorSpace(frame, {hdrCanvas: false, matchBt709: true}));
+      for (const transfer of ["pq", "hlg"]) {
+        frame.colorSpace = {primaries: "bt2020", transfer, matrix: "bt2020-ncl", fullRange: false};
+        profiles.push(kittyVideoColorSpace(frame, {hdrCanvas: false, matchBt709: true}));
+      }
       const filter = kittyBt709DisplayFilter();
       document.body.append(filter);
       const input = document.createElement("canvas");
@@ -32,7 +40,7 @@ test("Windows HDR presentation preserves the BT.709 shadow curve for SDR video",
       const samples = Array.from(result.getImageData(0, 0, 256, 1).data).filter((_, i) => i % 4 === 0);
       return {profiles, samples};
     });
-    assert.deepEqual(profiles, ["srgb", "bt709-on-hdr", "srgb"]);
+    assert.deepEqual(profiles, ["srgb", "bt709-on-hdr", "bt709-on-hdr", "srgb", "converted", "converted"]);
     assert.equal(samples[0], 0);
     assert.equal(samples[255], 255);
     for (const [code, actual] of samples.entries()) {

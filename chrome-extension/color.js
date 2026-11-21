@@ -1,7 +1,8 @@
 // PQ and HLG code values fit the interpolation shaders' 0..1 signal range.
-function kittyVideoColorSpace(frame, windowsHdrDisplay = false) {
+function kittyVideoColorSpace(frame, {hdrCanvas = true, matchBt709 = false} = {}) {
   const {primaries, transfer, matrix, fullRange} = frame.colorSpace;
   if (transfer === "pq" || transfer === "hlg") {
+    if (!hdrCanvas) return "converted";
     if (primaries === "bt2020" && matrix === "bt2020-ncl" && fullRange !== null &&
         (frame.format === "I420P10" || frame.format === "NV12" || frame.format === "I420") &&
         !frame.rotation && !frame.flip &&
@@ -10,7 +11,7 @@ function kittyVideoColorSpace(frame, windowsHdrDisplay = false) {
   }
   if (primaries === "bt2020" || primaries === "smpte432" || matrix === "bt2020-ncl" ||
       transfer === "linear" || /P(10|12)$/.test(frame.format)) return "converted";
-  if (windowsHdrDisplay && primaries === "bt709" && transfer === "bt709" && matrix === "bt709")
+  if (matchBt709 && primaries === "bt709" && transfer === "bt709" && matrix === "bt709")
     return "bt709-on-hdr";
   return "srgb";
 }

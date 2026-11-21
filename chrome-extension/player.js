@@ -2,6 +2,7 @@
   let interpolate = true, preferred = "ai", selected, active;
   let frameLimit = 120;
   let showInfo = true;
+  let forceWindowsHdrShadows;
   let initialized = false;
   let fidelityFxLabel;
   const availability = {};
@@ -480,6 +481,7 @@
   function watchColor(video, host, requested) {
     let playback, colorSpace, converted = false;
     const display = matchMedia("(dynamic-range: high)");
+    const videoDisplay = matchMedia("(video-dynamic-range: high)");
     function capture(_, frame) {
       if (!contextAlive()) return;
       callback = video.requestVideoFrameCallback(capture);
@@ -488,8 +490,10 @@
       if (!video.mediaKeys) {
         try {
           decoded = new VideoFrame(video);
-          next = kittyVideoColorSpace(decoded, isWindows && display.matches);
-          if (next !== "srgb" && !display.matches) next = "converted";
+          next = kittyVideoColorSpace(decoded, {
+            hdrCanvas: display.matches,
+            matchBt709: isWindows && (display.matches || videoDisplay.matches || forceWindowsHdrShadows),
+          });
         }
         catch { /* The regular renderer can still try importing the video element. */ }
       }
@@ -558,6 +562,8 @@
   });
   let receivedInfoChange = false;
   function onSettingsChange(changes) {
+    if (Object.hasOwn(changes, "forceWindowsHdrShadows"))
+      forceWindowsHdrShadows = changes.forceWindowsHdrShadows.newValue === true;
     if (Object.hasOwn(changes, "showInfo")) {
       receivedInfoChange = true;
       setShowInfo(changes.showInfo.newValue !== false);
@@ -571,7 +577,7 @@
   }
   chrome.storage.local.onChanged.addListener(onSettingsChange);
   Promise.all([
-    chrome.storage.local.get([...kittyPlaysAvailabilityKeys, "enabled", "preferred", "rate", "showInfo"]).catch(() => ({})),
+    chrome.storage.local.get([...kittyPlaysAvailabilityKeys, "enabled", "preferred", "rate", "showInfo", "forceWindowsHdrShadows"]).catch(() => ({})),
     detectKittyPlaysGraphics().catch(() => ({})),
   ]).then(([saved, graphics]) => {
     const {nvidia, appleM1} = graphics;
@@ -593,6 +599,7 @@
     }
     if (["60", "120", "Max"].includes(saved.rate)) showRate(saved.rate);
     if (!receivedInfoChange) setShowInfo(saved.showInfo !== false);
+    forceWindowsHdrShadows ??= saved.forceWindowsHdrShadows === true;
   }).catch(() => {}).finally(() => {
     if (!contextAlive()) return;
     initialized = true;
