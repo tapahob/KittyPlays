@@ -1,6 +1,7 @@
 // Video-only FidelityFX path. Pixel data stays in browser GPU textures.
 async function createFidelityFxRenderer(canvas, signal, onFailure, getFrameLimit, maxMultiplier = 8, colorSpace = "srgb") {
-  const adapter = await navigator.gpu?.requestAdapter({powerPreference: "high-performance"});
+  const adapterOptions = /^win/i.test(kittyPlaysPlatform) ? undefined : {powerPreference: "high-performance"};
+  const adapter = await navigator.gpu?.requestAdapter(adapterOptions);
   if (!adapter || adapter.info.isFallbackAdapter) throw new Error("FidelityFX requires hardware WebGPU");
   signal.throwIfAborted();
   const device = await adapter.requestDevice();

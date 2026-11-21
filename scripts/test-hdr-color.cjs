@@ -133,7 +133,7 @@ test("HDR optical flow presents a distinct intermediate frame from eight-bit dec
     const page = await browser.newPage();
     await page.route("https://kitty.test/", route => route.fulfill({body: "<main></main>", contentType: "text/html"}));
     await page.goto("https://kitty.test/");
-    for (const script of ["color.js", "fidelityfx-shaders.js", "fidelityfx.js"])
+    for (const script of ["color.js", "fidelityfx-shaders.js", "fidelityfx.js", "modes.js"])
       await page.addScriptTag({path: path.resolve(__dirname, "../chrome-extension", script)});
     for (const format of ["NV12", "I420"]) {
       for (const transfer of ["pq", "hlg"]) {

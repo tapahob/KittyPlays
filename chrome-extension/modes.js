@@ -9,12 +9,10 @@ const kittyPlaysModeKey = mode => "modeEnabled." + mode;
 const kittyPlaysAvailabilityKeys = ["extensionEnabled", ...kittyPlaysModes.map(([mode]) => kittyPlaysModeKey(mode))];
 
 async function detectKittyPlaysGraphics() {
-  const isWindows = /^win/i.test(kittyPlaysPlatform);
   const isMac = /^mac/i.test(kittyPlaysPlatform);
   const isAmd = name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "");
   const isNvidia = name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "");
-  const adapterOptions = isWindows ? {powerPreference: "high-performance"} : undefined;
-  const adapter = isMac ? null : await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
+  const adapter = isMac ? null : await navigator.gpu?.requestAdapter().catch(() => null);
   const info = adapter?.info;
   const names = info && !info.isFallbackAdapter ? [info.vendor, info.description] : [];
 
