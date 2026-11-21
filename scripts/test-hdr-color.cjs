@@ -4,6 +4,45 @@ const path = require("node:path");
 const test = require("node:test");
 const {chromium} = require("playwright");
 
+test("Windows HDR presentation preserves the BT.709 shadow curve for SDR video", async () => {
+  const browser = await chromium.launch({channel: "chrome"});
+  try {
+    const page = await browser.newPage();
+    await page.route("https://kitty.test/", route => route.fulfill({body: "<main></main>", contentType: "text/html"}));
+    await page.goto("https://kitty.test/");
+    await page.addScriptTag({path: path.resolve(__dirname, "../chrome-extension/color.js")});
+    const {profiles, samples} = await page.evaluate(() => {
+      const frame = {format: "NV12", colorSpace: {primaries: "bt709", transfer: "bt709", matrix: "bt709"}};
+      const profiles = [kittyVideoColorSpace(frame, false), kittyVideoColorSpace(frame, true)];
+      frame.colorSpace.transfer = "iec61966-2-1";
+      profiles.push(kittyVideoColorSpace(frame, true));
+      const filter = kittyBt709DisplayFilter();
+      document.body.append(filter);
+      const input = document.createElement("canvas");
+      input.width = 256;
+      input.height = 1;
+      const ctx = input.getContext("2d");
+      const data = ctx.createImageData(256, 1);
+      for (let x = 0; x < 256; x++) data.data.set([x, x, x, 255], 4*x);
+      ctx.putImageData(data, 0, 0);
+      const output = input.cloneNode();
+      const result = output.getContext("2d");
+      result.filter = `url(#${filter.firstElementChild.id})`;
+      result.drawImage(input, 0, 0);
+      const samples = Array.from(result.getImageData(0, 0, 256, 1).data).filter((_, i) => i % 4 === 0);
+      return {profiles, samples};
+    });
+    assert.deepEqual(profiles, ["srgb", "bt709-on-hdr", "srgb"]);
+    assert.equal(samples[0], 0);
+    assert.equal(samples[255], 255);
+    for (const [code, actual] of samples.entries()) {
+      const linear = (code / 255) ** 2.2;
+      const expected = 255 * (linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1/2.4) - 0.055);
+      assert.ok(Math.abs(actual - expected) <= 1, `BT.709 code ${code}: got ${actual}, expected ${expected}`);
+    }
+  } finally { await browser.close(); }
+});
+
 test("10-bit PQ and HLG retain adjacent highlight levels through the HDR canvas", async () => {
   const browser = await chromium.launch({channel: "chrome"});
   try {

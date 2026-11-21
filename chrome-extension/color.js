@@ -1,5 +1,5 @@
 // PQ and HLG code values fit the interpolation shaders' 0..1 signal range.
-function kittyVideoColorSpace(frame) {
+function kittyVideoColorSpace(frame, windowsHdrDisplay = false) {
   const {primaries, transfer, matrix, fullRange} = frame.colorSpace;
   if (transfer === "pq" || transfer === "hlg") {
     if (primaries === "bt2020" && matrix === "bt2020-ncl" && fullRange !== null &&
@@ -10,11 +10,46 @@ function kittyVideoColorSpace(frame) {
   }
   if (primaries === "bt2020" || primaries === "smpte432" || matrix === "bt2020-ncl" ||
       transfer === "linear" || /P(10|12)$/.test(frame.format)) return "converted";
+  if (windowsHdrDisplay && primaries === "bt709" && transfer === "bt709" && matrix === "bt709")
+    return "bt709-on-hdr";
   return "srgb";
 }
 
 function kittyFrameFormat(colorSpace) {
   return colorSpace === "srgb" ? "rgba8unorm" : "rgba16float";
+}
+
+// On a Windows HDR desktop, Chrome presents BT.709 video with a 2.2 display
+// gamma. Its SDR canvas feeds the same signal values to the sRGB display curve.
+// Match the video layer at presentation, including frames passed through unwarped.
+function kittyBt709DisplayFilter() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("width", "0");
+  svg.setAttribute("height", "0");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.position = "absolute";
+  const filter = document.createElementNS(ns, "filter");
+  filter.id = "kittyplays-display-" + crypto.randomUUID();
+  filter.setAttribute("x", "0%");
+  filter.setAttribute("y", "0%");
+  filter.setAttribute("width", "100%");
+  filter.setAttribute("height", "100%");
+  filter.setAttribute("color-interpolation-filters", "sRGB");
+  const transfer = document.createElementNS(ns, "feComponentTransfer");
+  const values = Array.from({length: 256}, (_, code) => {
+    const linear = (code / 255) ** 2.2;
+    return (linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055).toFixed(7);
+  }).join(" ");
+  for (const channel of ["R", "G", "B"]) {
+    const func = document.createElementNS(ns, "feFunc" + channel);
+    func.setAttribute("type", "table");
+    func.setAttribute("tableValues", values);
+    transfer.append(func);
+  }
+  filter.append(transfer);
+  svg.append(filter);
+  return svg;
 }
 
 function kittyConfigureCanvas(context, device, colorSpace, usage) {

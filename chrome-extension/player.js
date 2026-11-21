@@ -180,7 +180,8 @@
   }
   function attach(video, host, requested, profile, retryConverted) {
     const converted = profile === "converted";
-    const colorSpace = converted ? "srgb" : profile;
+    const matchBt709 = profile === "bt709-on-hdr";
+    const colorSpace = converted || matchBt709 ? "srgb" : profile;
     const hdr = colorSpace === "pq" || colorSpace === "hlg";
     let canvas = document.createElement("canvas");
     const hud = document.createElement("div");
@@ -218,6 +219,11 @@
     const sourceRate = document.createTextNode("");
     const outputRate = document.createElement("strong");
     metrics.get("fps").text.append(headline, sourceRate, " / ", outputRate);
+    const displayFilter = matchBt709 ? kittyBt709DisplayFilter() : null;
+    if (displayFilter) {
+      host.append(displayFilter);
+      canvas.style.filter = `url("#${displayFilter.firstElementChild.id}")`;
+    }
     video.after(canvas);
     host.append(hud);
     let renderer, raf, previous, latest, sourceFps, issue;
@@ -451,6 +457,7 @@
       stop();
       renderer?.dispose();
       canvas.remove();
+      displayFilter?.remove();
       hud.remove();
     }
     return {capture, dispose, get needsRestart() {
@@ -481,7 +488,7 @@
       if (!video.mediaKeys) {
         try {
           decoded = new VideoFrame(video);
-          next = kittyVideoColorSpace(decoded);
+          next = kittyVideoColorSpace(decoded, isWindows && display.matches);
           if (next !== "srgb" && !display.matches) next = "converted";
         }
         catch { /* The regular renderer can still try importing the video element. */ }
