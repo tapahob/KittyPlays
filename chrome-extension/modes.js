@@ -12,9 +12,11 @@ async function detectKittyPlaysGraphics() {
   const isMac = /^mac/i.test(kittyPlaysPlatform);
   const isAmd = name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "");
   const isNvidia = name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "");
-  const adapter = isMac ? null : await navigator.gpu?.requestAdapter().catch(() => null);
+  const adapterOptions = isMac ? {powerPreference: "high-performance"} : undefined;
+  const adapter = await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
   const info = adapter?.info;
-  const names = info && !info.isFallbackAdapter ? [info.vendor, info.description] : [];
+  const hardwareWebGpu = Boolean(info && !info.isFallbackAdapter);
+  const names = hardwareWebGpu ? [info.vendor, info.description] : [];
 
   // WebGL can expose the GPU model even when WebGPU only identifies its vendor.
   const gl = document.createElement("canvas").getContext("webgl2", {powerPreference: "high-performance"});
@@ -30,6 +32,7 @@ async function detectKittyPlaysGraphics() {
   const amd = !isMac && names.some(isAmd);
   const nvidia = !isMac && names.some(isNvidia);
   const appleM1 = isMac && names.some(name => /\bApple M1\b(?!\s+(?:Pro|Max|Ultra)\b)/i.test(name));
-  const fidelityFxLabel = nvidia ? "FidelityFX (WebGPU)" : amd ? "AMD FidelityFX" : "";
+  const fidelityFxLabel = isMac && hardwareWebGpu ? "FidelityFX (Metal)" :
+    nvidia ? "FidelityFX (WebGPU)" : amd ? "AMD FidelityFX" : "";
   return {amd, nvidia, appleM1, fidelityFxLabel};
 }

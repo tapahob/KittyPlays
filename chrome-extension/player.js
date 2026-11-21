@@ -26,6 +26,7 @@
   modeMenu.append(modeTrigger, modeOptions);
 
   const isWindows = /^win/i.test(kittyPlaysPlatform);
+  const isMac = /^mac/i.test(kittyPlaysPlatform);
   const modeButtons = new Map();
   const supportsMode = mode => mode !== "fidelityfx" || Boolean(fidelityFxLabel);
   const isModeAvailable = mode => supportsMode(mode) && availability[kittyPlaysModeKey(mode)] !== false;
@@ -586,7 +587,7 @@
     }
     updateModeVisibility();
     if (typeof saved.enabled === "boolean") interpolate = saved.enabled;
-    if (isModeAvailable("fidelityfx")) preferred = "fidelityfx";
+    if (!isMac && isModeAvailable("fidelityfx")) preferred = "fidelityfx";
     if (appleM1) preferred = "flow";
     if (saved.preferred !== "original" && modeButtons.has(saved.preferred) && supportsMode(saved.preferred))
       preferred = saved.preferred;

@@ -11,7 +11,7 @@
 
 ## Make every frame count
 
-- **Your controls, in the player.** Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available on supported Windows and Linux systems.
+- **Your controls, in the player.** Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available on supported macOS, Windows, and Linux systems.
 - **Motion powered by your GPU.** Frames are processed locally with WebGPU or accelerated WebGL 2. No native helper is needed.
 - **See how it performs.** The Info overlay shows source and output FPS, dropped frames, and timing. KittyPlays remembers your mode and frame-rate target.
 
@@ -38,7 +38,9 @@ KittyPlays defaults to **AMD FidelityFX** on supported Radeon graphics and **Fid
 
 ## Set up on macOS
 
-On an Apple Silicon Mac, load the `chrome-extension` folder from `chrome://extensions` using **Load unpacked**, then reload YouTube. KittyPlays defaults to Optical Flow when Chrome identifies the base Apple M1 GPU. It keeps any saved browser mode. AI and Hybrid use WebGPU and fall back to Optical Flow if the neural renderer cannot start. All three modes run in Chrome without a native helper. **Max** follows the refresh rate Chrome can use on the current display.
+On a Mac, load the `chrome-extension` folder from `chrome://extensions` using **Load unpacked**, then reload YouTube. With hardware WebGPU available, enable **FidelityFX (Metal)** in the extension settings if needed, then select it in the YouTube player. Chrome runs the bundled WGSL shaders on Metal; no native helper is required. In `chrome://gpu`, look for a hardware Metal adapter under **Dawn Info**.
+
+FidelityFX is opt-in on macOS. KittyPlays keeps your saved mode when supported; without a saved choice, it defaults to Optical Flow on the base Apple M1 and AI on other Macs. If Chrome has no hardware WebGPU adapter, the FidelityFX option is hidden. If the renderer cannot start or loses the GPU during playback, KittyPlays tries Optical Flow if enabled, otherwise plays the original video. FidelityFX supports SDR up to 1080p and uses Chrome's HDR path when compatible decoder frames and display output are available. **Max** follows the refresh rate Chrome can use on the current display.
 
 ## Architecture
 
@@ -132,7 +134,7 @@ If AI, Hybrid, or FidelityFX cannot run, the player tries Optical Flow when it i
 
 ## Features
 
-- Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. On Windows and Linux, FidelityFX is also available when Chrome detects a Radeon or NVIDIA adapter. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
+- Switch between AI, Optical Flow, Hybrid, and Original without leaving YouTube. FidelityFX is also available through hardware WebGPU on macOS (Metal), or when Chrome detects a Radeon or NVIDIA adapter on Windows and Linux. Choose 60 FPS, 120 FPS, or Max to follow the browser's display refresh rate.
 - Click the KittyPlays icon in Chrome to choose which modes appear in the YouTube player or turn KittyPlays off across all tabs. Original stays in the player menu whenever KittyPlays is on.
 - **Info** shows source and output FPS, frames dropped by Chrome, and the 95th-percentile interval between canvas updates. GPU use, video memory, processing resolution, and skipped inputs due to a busy renderer appear where available. Chrome remembers the selected mode, FPS target, and overlay visibility.
 

@@ -195,7 +195,7 @@
         <div class="actions"><a class="button" href="https://www.youtube.com/" target="_blank" rel="noopener">Open YouTube</a></div>
         <aside id="mac-note" hidden>
           <h3>Playback on macOS</h3>
-          <p>KittyPlays starts in Optical Flow when Chrome identifies the base Apple M1 GPU. You can also choose AI or Hybrid if WebGPU is available. All three modes run directly in Chrome.</p>
+          <p>KittyPlays starts in Optical Flow when Chrome identifies the base Apple M1 GPU and no mode is saved. When hardware WebGPU is available, choose FidelityFX (Metal) in the player to run it directly in Chrome without a native helper.</p>
           <p>Select <strong>Max</strong> to follow the refresh rate Chrome can use on your current display.</p>
         </aside>
         <aside id="fidelityfx-legacy" hidden>
@@ -257,8 +257,9 @@
     return "Unknown";
   }
 
-  async function detectGraphics() {
-    const adapter = await navigator.gpu?.requestAdapter().catch(() => null);
+  async function detectGraphics(platform) {
+    const adapterOptions = platform === "macOS" ? {powerPreference: "high-performance"} : undefined;
+    const adapter = await navigator.gpu?.requestAdapter(adapterOptions).catch(() => null);
     let gl;
     let vendor;
     let renderer;
@@ -285,7 +286,7 @@
       label: display && !software ? display : adapterLabel || display || "Not reported by Chrome",
       amd: names.some(name => /\b(?:amd|radeon|ati)\b|^(?:0x)?1002$/i.test(name?.trim() || "")),
       nvidia: names.some(name => /\b(?:nvidia|geforce|quadro|tesla)\b|^(?:0x)?10de$/i.test(name?.trim() || "")),
-      webgpu: Boolean(adapter && !info?.isFallbackAdapter),
+      webgpu: Boolean(info && !info.isFallbackAdapter),
       webgl: Boolean(gl && !software),
     };
   }
@@ -309,15 +310,15 @@
       ChromeOS: "Open the ZIP in Files and copy its contents into a KittyPlays-Chrome folder in Downloads.",
     })[platform] || "Extract the ZIP with your system’s archive tool.";
     try {
-      const gpu = await detectGraphics();
+      const gpu = await detectGraphics(platform);
       byId("gpu").textContent = gpu.label;
       const chrome = /Chrome\//.test(navigator.userAgent) &&
         !/Edg\/|OPR\/|SamsungBrowser\//.test(navigator.userAgent);
-      const fidelityFx = !mobile && platform !== "macOS" && (gpu.amd || gpu.nvidia);
+      const fidelityFx = !mobile && (platform === "macOS" ? gpu.webgpu : gpu.amd || gpu.nvidia);
       const linuxRadeon = platform === "Linux" && gpu.amd;
       byId("fidelityfx-legacy").hidden = !linuxRadeon;
       byId("vulkan-note").hidden = platform !== "Linux" || !chrome || gpu.webgpu;
-      const webgpuModes = fidelityFx ? "AI, Hybrid, and FidelityFX" : "AI and Hybrid";
+      const webgpuModes = fidelityFx ? `AI, Hybrid, and FidelityFX${platform === "macOS" ? " (Metal)" : ""}` : "AI and Hybrid";
       byId("compatibility").textContent = mobile
         ? "Open this wizard in desktop Chrome to install KittyPlays."
         : !chrome ? "Continue in desktop Google Chrome for the installation steps."
